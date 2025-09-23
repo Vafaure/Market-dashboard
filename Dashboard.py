@@ -1,7 +1,9 @@
+# cd "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Code/Dashboard project"
+# streamlit run Dashboard.py
+
 import yfinance as yf
 import streamlit as st
 import plotly.express as px
-import pandas as pd
 
 st.set_page_config(layout="wide")
 
@@ -26,16 +28,14 @@ tickers = [companies[name] for name in stock_names]
 data = yf.download(tickers, period=horizon_map[horizon])["Close"]
 
 
-if isinstance(data, pd.Series):
-    data = data.to_frame(name=tickers[0])
-
 
 if len(tickers) == 1:
     fig = px.line(data, x=data.index, y=data.columns, title="Stock price")
 else:
     data_norm = (data.pct_change().fillna(0) + 1).cumprod()
-    data_norm = data_norm / data_norm.iloc[0]
-    fig = px.line(data_norm, x=data_norm.index, y=data_norm.columns, title="Normelized performances")
+    data_percent = (data_norm-1)*100
+    fig = px.line(data_percent, x=data_percent.index, y=data_percent.columns, title="Normelized performances")
+    #fig.update_yaxes(type="log")
 
 
 with col1:
@@ -51,9 +51,9 @@ with col1:
             worst = perf.idxmin()
             col_best, col_worst = st.columns(2)
             with col_best:
-                st.metric("Best growth",value=f"{best}",delta=f"{perf[best]:.2f}%")
+                st.metric("Best growth",value=f"{best}",delta=f"{perf[best]:,.2f}%")
             with col_worst:
-                st.metric("Worst growth", value=f"{worst}",delta=f"{perf[worst]:.2f}%")
+                st.metric("Worst growth", value=f"{worst}",delta=f"{perf[worst]:,.2f}%")
                 
 
 with col2:
