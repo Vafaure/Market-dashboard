@@ -22,6 +22,11 @@ commodities = {"Crude Oil WTI": "CL=F","Crude Oil Brent": "BZ=F","Natural Gas": 
                "Cocoa": "CC=F","Cotton": "CT=F","Sugar": "SB=F","Live Cattle": "LE=F","Feeder Cattle": "GF=F",
                "Lean Hogs": "HE=F"}
 
+indices = {"S&P 500": "^GSPC","Dow Jones Industrial Average": "^DJI","NASDAQ 100": "^NDX","Russell 2000": "^RUT",
+           "VIX": "^VIX","Euro Stoxx 50": "^STOXX50E","FTSE 100": "^FTSE","DAX": "^GDAXI","CAC 40": "^FCHI",
+           "IBEX 35": "^IBEX","Nikkei 225": "^N225","Hang Seng": "^HSI","Shanghai Composite": "000001.SS",
+           "KOSPI": "^KS11"}
+
 
 horizon_map = {"1 Month": "1mo","3 Months": "3mo","6 Months": "6mo","1 Year": "1y",
                "5 Years": "5y","10 Years": "10y","20 Years": "20y","Max": "max"}
@@ -32,12 +37,13 @@ with col1:
         st.markdown("#### Parameters")
         commodities_name = st.multiselect("Commodities", list(commodities.keys()))
         stock_names = st.multiselect("Stock", list(companies.keys()), default=["Apple"])
+        indices_name = st.multiselect("Indices", list(indices.keys()))
         horizon = st.pills("Horizon", list(horizon_map.keys()), default="1 Month")
-        log_scale = st.toggle("Log scale", value=False)
+        log_scale = st.toggle("Log-scale", value=False)
     
 
 
-tickers = [companies[name] for name in stock_names] + [commodities[name] for name in commodities_name]
+tickers = [companies[name] for name in stock_names] + [commodities[name] for name in commodities_name] + [indices[name] for name in indices_name]
 data = yf.download(tickers, period=horizon_map[horizon])["Close"]
 
 
@@ -71,7 +77,3 @@ with col2:
             st.metric("Best growth",value=f"{best}",delta=f"{perf[best]:,.2f}%")
         with col_worst:
             st.metric("Worst growth", value=f"{worst}",delta=f"{perf[worst]:,.2f}%")
-                
-       
-st.markdown("### Raw data")
-data
