@@ -16,31 +16,38 @@ companies = {"Apple":"AAPL","Microsoft":"MSFT","Alphabet":"GOOGL","Amazon":"AMZN
              "JPMorgan Chase":"JPM","Procter & Gamble":"PG","Disney":"DIS","Netflix":"NFLX","Mastercard":"MA",
              "UnitedHealth":"UNH","Home Depot":"HD","Coca-Cola":"KO","PepsiCo":"PEP"}
 
+commodities = {"Crude Oil WTI": "CL=F","Crude Oil Brent": "BZ=F","Natural Gas": "NG=F","Heating Oil": "HO=F",
+               "Gasoline RBOB": "RB=F","Gold": "GC=F","Silver": "SI=F","Platinum": "PL=F","Palladium": "PA=F",
+               "Copper": "HG=F","Corn": "ZC=F","Wheat": "ZW=F","Soybeans": "ZS=F","Oats": "ZO=F","Coffee": "KC=F",
+               "Cocoa": "CC=F","Cotton": "CT=F","Sugar": "SB=F","Live Cattle": "LE=F","Feeder Cattle": "GF=F",
+               "Lean Hogs": "HE=F"}
+
+
 horizon_map = {"1 Month": "1mo","3 Months": "3mo","6 Months": "6mo","1 Year": "1y",
                "5 Years": "5y","10 Years": "10y","20 Years": "20y","Max": "max"}
 
 with col1:
     with st.container(border=True):
+        commodities_name = st.multiselect("Commodities", list(commodities.keys()))
         stock_names = st.multiselect("Stock", list(companies.keys()), default=["Apple"])
-        horizon = st.pills("Time horizon", list(horizon_map.keys()), default="1 Month")
+    
 
-tickers = [companies[name] for name in stock_names]
+with col2:
+    with st.container(border=True):
+        horizon = st.pills(None, list(horizon_map.keys()), default="1 Month")
+        tickers = [companies[name] for name in stock_names]
+        data = yf.download(tickers, period=horizon_map[horizon])["Close"]
 
+        # création du graphique
+        if len(tickers) == 1:
+            fig = px.line(data, x=data.index, y=data.columns,title=None)
+        else:
+            data_norm = (data.pct_change().fillna(0) + 1).cumprod()
+            data_percent = (data_norm-1)*100
+            fig = px.line(data_percent, x=data_percent.index, y=data_percent.columns, title="Normalized performances")
+            fig.update_yaxes(ticksuffix="%")
 
-data = yf.download(tickers, period=horizon_map[horizon])["Close"]
-
-
-#missing_values = data.isnull().sum
-
-
-if len(tickers) == 1:
-    fig = px.line(data, x=data.index, y=data.columns, title="Stock price")
-else:
-    data_norm = (data.pct_change().fillna(0) + 1).cumprod()
-    data_percent = (data_norm-1)*100
-    fig = px.line(data_percent, x=data_percent.index, y=data_percent.columns, title="Normelized performances")
-    fig.update_yaxes(ticksuffix="%")
-    #fig.update_yaxes(type="log")
+        st.plotly_chart(fig)
 
 
 with col1:
@@ -60,10 +67,6 @@ with col1:
             with col_worst:
                 st.metric("Worst growth", value=f"{worst}",delta=f"{perf[worst]:,.2f}%")
                 
-
-with col2:
-    with st.container(border=True):
-        st.plotly_chart(fig)
        
 st.markdown("### Raw data")
 data
