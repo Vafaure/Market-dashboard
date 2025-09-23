@@ -7,6 +7,8 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
+st.title("Market Dashboard")
+
 col1, col2 = st.columns([1, 3])
 
 companies = {"Apple":"AAPL","Microsoft":"MSFT","Alphabet":"GOOGL","Amazon":"AMZN","Tesla":"TSLA","Meta":"META",
@@ -24,9 +26,11 @@ with col1:
 
 tickers = [companies[name] for name in stock_names]
 
-# Téléchargement unique
+
 data = yf.download(tickers, period=horizon_map[horizon])["Close"]
 
+
+#missing_values = data.isnull().sum
 
 
 if len(tickers) == 1:
@@ -35,6 +39,7 @@ else:
     data_norm = (data.pct_change().fillna(0) + 1).cumprod()
     data_percent = (data_norm-1)*100
     fig = px.line(data_percent, x=data_percent.index, y=data_percent.columns, title="Normelized performances")
+    fig.update_yaxes(ticksuffix="%")
     #fig.update_yaxes(type="log")
 
 
@@ -59,3 +64,6 @@ with col1:
 with col2:
     with st.container(border=True):
         st.plotly_chart(fig)
+       
+st.markdown("### Raw data")
+data
