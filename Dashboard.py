@@ -5,7 +5,7 @@ import yfinance as yf
 import streamlit as st
 import plotly.express as px
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title = "Market dashboard")
 
 st.title("Market Dashboard")
 
@@ -27,6 +27,14 @@ indices = {"S&P 500": "^GSPC","Dow Jones Industrial Average": "^DJI","NASDAQ 100
            "IBEX 35": "^IBEX","Nikkei 225": "^N225","Hang Seng": "^HSI","Shanghai Composite": "000001.SS",
            "KOSPI": "^KS11"}
 
+forex = {"EUR/USD": "EURUSD=X","USD/JPY": "JPY=X","GBP/USD": "GBPUSD=X","USD/CHF": "CHF=X",
+                 "AUD/USD": "AUDUSD=X","NZD/USD": "NZDUSD=X","USD/CAD": "CAD=X","EUR/GBP": "EURGBP=X",
+                 "EUR/JPY": "EURJPY=X","EUR/CHF": "EURCHF=X","GBP/JPY": "GBPJPY=X","AUD/JPY": "AUDJPY=X",
+                 "USD/CNY": "CNY=X","USD/HKD": "HKD=X","USD/SGD": "SGD=X","USD/INR": "INR=X","USD/BRL": "BRL=X",
+                 "USD/ZAR": "ZAR=X","USD/MXN": "MXN=X"}
+
+fixed_income = {"US 13 Week T-Bill Yield": "^IRX","US 5 Year Treasury Yield": "^FVX",
+                "US 10 Year Treasury Yield": "^TNX","US 30 Year Treasury Yield": "^TYX"}
 
 horizon_map = {"1 Month": "1mo","3 Months": "3mo","6 Months": "6mo","1 Year": "1y",
                "5 Years": "5y","10 Years": "10y","20 Years": "20y","Max": "max"}
@@ -35,18 +43,22 @@ horizon_map = {"1 Month": "1mo","3 Months": "3mo","6 Months": "6mo","1 Year": "1
 with col1:
     with st.container(border=True):
         st.markdown("#### Parameters")
-        commodities_name = st.multiselect("Commodities", list(commodities.keys()))
-        stock_names = st.multiselect("Stock", list(companies.keys()), default=["Apple"])
-        indices_name = st.multiselect("Indices", list(indices.keys()))
+        
+        commodities_name = st.multiselect("Commodity", list(commodities.keys()))
+        stock_names = st.multiselect("Equity", list(companies.keys()), default=["Apple"])
+        indices_name = st.multiselect("Index", list(indices.keys()))
+        forex_name = st.multiselect("Forex", list(forex.keys()))
+        fixed_income_name = st.multiselect("Fixed income", list(fixed_income.keys()))
+        
         horizon = st.pills("Horizon", list(horizon_map.keys()), default="1 Month")
-        log_scale = st.toggle("Log-scale", value=False)
-    
+        
+        tickers = [companies[name] for name in stock_names] + [commodities[name] for name in commodities_name] + [indices[name] for name in indices_name] + [forex[name] for name in forex_name] + [fixed_income[name] for name in fixed_income_name]
+        data = yf.download(tickers, period=horizon_map[horizon])["Close"]
+        
+        if len(tickers) > 1:
+            log_scale = st.toggle("Log-scale", value=False)
 
-
-tickers = [companies[name] for name in stock_names] + [commodities[name] for name in commodities_name] + [indices[name] for name in indices_name]
-data = yf.download(tickers, period=horizon_map[horizon])["Close"]
-
-
+        
 
 with col2:
     if len(tickers) == 1:
