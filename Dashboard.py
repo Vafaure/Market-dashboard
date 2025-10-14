@@ -1,5 +1,5 @@
-# cd "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Code/Dashboard project"
-# streamlit run Dashboard.py
+# streamlit run "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Code/Dashboard project/Dashboard.py"
+
 
 import yfinance as yf
 import streamlit as st
@@ -42,6 +42,7 @@ forex_dict = {"EUR/USD": "EURUSD=X","USD/JPY": "JPY=X","GBP/USD": "GBPUSD=X",
               "AUD/JPY": "AUDJPY=X","USD/CNY": "CNY=X","USD/HKD": "HKD=X",
               "USD/SGD": "SGD=X","USD/INR": "INR=X","USD/BRL": "BRL=X",
               "USD/ZAR": "ZAR=X","USD/MXN": "MXN=X"}
+
 
 fixed_income_dict = {"US 13 Week T-Bill Yield": "^IRX",
                      "US 5 Year Treasury Yield": "^FVX",
@@ -109,6 +110,15 @@ def show_metrics(data, ticker):
                       delta=f"{perf.loc[worst]:,.2f} %")
 
 
+def correlation (data):
+    data_corr = data.corr()
+    corr = px.imshow(data_corr,text_auto=True,color_continuous_scale="RdYlGn",
+                     zmin=-1, zmax=1)
+    corr.update_xaxes(side="top",title=None)
+    corr.update_yaxes(title=None)
+    return corr
+
+
 # Dashboard
 st.set_page_config(layout="wide",page_title = "Market dashboard")
 st.title("Market Dashboard")
@@ -121,7 +131,7 @@ with col1:
                                  default="1 Month")
     
         equity_choice = st.multiselect("Equity", equity_dict.keys(), 
-                                       default="Apple")
+                                       default=["Apple","Microsoft","Alphabet"])
         commodity_choice = st.multiselect("Commodity", commodity_dict.keys())
         index_choice = st.multiselect("Index", index_dict.keys())
         forex_choice = st.multiselect("Forex", forex_dict.keys())
@@ -132,7 +142,7 @@ with col1:
         ticker = get_ticker(equity_choice, commodity_choice, index_choice, 
                             forex_choice, fixed_income_choice)
         if len(ticker) == 0:
-            st.warning("⚠️ Please select at least one ticker")
+            st.warning("Please select at least one ticker")
             st.stop()
 
 data_raw = get_data(ticker, period_choice)
@@ -142,9 +152,15 @@ data_norm = normalize(data)
 with col2:
     fig = plot_data(data, data_norm, ticker, logscale)
     st.plotly_chart(fig)
-    st.markdown("#### Metrics")
+    st.subheader ("Metrics")
     metrics_display = show_metrics(data,ticker)
+    st.subheader ("Correlation matrix")
+    correlation_matrix = correlation(data)
+    st.plotly_chart(correlation_matrix, use_container_width=True)
 
+    
+    
+st.subheader("Data")
 st.dataframe(data)
 
 
