@@ -4,6 +4,7 @@
 import yfinance as yf
 import streamlit as st
 import plotly.express as px
+import pandas_datareader.data as web
 
 # Dictionnaires
 
@@ -48,6 +49,25 @@ fixed_income_dict = {"US 13 Week T-Bill Yield": "^IRX",
                      "US 5 Year Treasury Yield": "^FVX",
                      "US 10 Year Treasury Yield": "^TNX",
                      "US 30 Year Treasury Yield": "^TYX"}
+
+
+
+
+us_yields = ["DGS1MO","DGS1","DGS2MO","DGS2","DGS3","DGS3MO","DGS5","DGS4MO",
+             "DGS7","DGS6MO","DGS10","DGS20","DGS30"]
+
+yields_10y = ["IRLTLT01USM156N","IRLTLT01ITM156N","IRLTLT01ESM156N",
+              "IRLTLT01DEM156N","IRLTLT01GBM156N","IRLTLT01PTM156N",
+              "IRLTLT01FRM156N","IRLTLT01JPM156N","IRLTLT01GRM156N"]
+
+names = {"CPIAUCNS": "CPI","GDP": "GDP","DGS10": "U.S. 10Y Treasury",
+         "IRLTLT01DEM156N": "Germany","IRLTLT01FRM156N": "France",
+         "IRLTLT01ITM156N": "Italy","IRLTLT01GBM156N": "United Kingdom",
+         "IRLTLT01JPM156N": "Japan","IRLTLT01ESM156N": "Spain",
+         "IRLTLT01PTM156N": "Portugal","IRLTLT01GRM156N": "Greece"}
+
+
+
 
 # Functions
 
@@ -119,10 +139,20 @@ def correlation (data):
     return corr
 
 
+def download_fred_series(series_names, start_date):
+    df = web.DataReader(series_names, "fred", start=start_date)
+    return df.ffill()
+
+
+
+    
+    
+
 # Dashboard
 st.set_page_config(layout="wide",page_title = "Market dashboard")
 st.title("Market Dashboard")
 col1, col2 = st.columns([1,3])
+
 
 with col1:
     with st.container(border=True):
@@ -149,19 +179,28 @@ data_raw = get_data(ticker, period_choice)
 data = preprocess(data_raw)
 data_norm = normalize(data)
 
-with col2:
-    fig = plot_data(data, data_norm, ticker, logscale)
-    st.plotly_chart(fig)
-    st.subheader ("Metrics")
-    metrics_display = show_metrics(data,ticker)
-    st.subheader ("Correlation matrix")
-    correlation_matrix = correlation(data)
-    st.plotly_chart(correlation_matrix, use_container_width=True)
 
+with col2:
+    tab1, tab2, tab3 = st.tabs(["Chart","Correlation matrix","Data"])
     
+    with tab1:
+        fig = plot_data(data, data_norm, ticker, logscale)
+        st.plotly_chart(fig)
+        st.subheader ("Metrics")
+        metrics_display = show_metrics(data,ticker)
     
-st.subheader("Data")
-st.dataframe(data)
+    with tab2:
+        correlation_matrix = correlation(data)
+        st.plotly_chart(correlation_matrix, use_container_width=True)
+        
+    with tab3:
+        st.dataframe(data)
+    
+
+
+#st.subheader("Rates")
+#OECD_yield_choice = st.multiselect("OECD Yield 10y")
+#data_fred = download_fred_series()
 
 
 
