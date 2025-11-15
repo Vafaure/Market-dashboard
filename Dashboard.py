@@ -1,10 +1,11 @@
-# streamlit run "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Code/Dashboard project/Dashboard.py"
+# streamlit run "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Dashboard project/Dashboard.py"
 
 
 import yfinance as yf
 import streamlit as st
 import plotly.express as px
 import pandas_datareader.data as web
+import pandas as pd
 
 # Dictionnaires
 
@@ -51,10 +52,9 @@ fixed_income_dict = {"US 13 Week T-Bill Yield": "^IRX",
                      "US 30 Year Treasury Yield": "^TYX"}
 
 
+us_yields = ["DGS1MO","DGS3MO","DGS6MO","DGS1","DGS2","DGS3","DGS5","DGS7",
+             "DGS10","DGS20","DGS30"]
 
-
-us_yields = ["DGS1MO","DGS1","DGS2MO","DGS2","DGS3","DGS3MO","DGS5","DGS4MO",
-             "DGS7","DGS6MO","DGS10","DGS20","DGS30"]
 
 yields_10y = ["IRLTLT01USM156N","IRLTLT01ITM156N","IRLTLT01ESM156N",
               "IRLTLT01DEM156N","IRLTLT01GBM156N","IRLTLT01PTM156N",
@@ -197,10 +197,32 @@ with col2:
         st.dataframe(data)
     
 
+st.subheader("OECD Rates")
 
-#st.subheader("Rates")
-#OECD_yield_choice = st.multiselect("OECD Yield 10y")
-#data_fred = download_fred_series()
+oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
+rates_df = oecd_rates.reset_index()
+rates_df.columns = ["Country", "Yield"]
+rates_df = rates_df.sort_values(by="Yield", ascending=True)
+fig = px.bar(rates_df,x="Country",y="Yield",text=rates_df["Yield"].round(2))
+fig.update_traces(textposition='outside')
+st.plotly_chart(fig, use_container_width=True)
+
+
+st.subheader("US Rates")
+
+us_rates = download_fred_series(us_yields, "01-01-2000").iloc[-1]
+us_df = us_rates.reset_index()
+us_df.columns = ["Maturity", "Yield"]
+fig_us = px.bar(us_df,x="Maturity",y="Yield",text=us_df["Yield"].round(2))
+fig_us.update_traces(textposition='outside')
+st.plotly_chart(fig_us, use_container_width=True)
+
+
+
+
+
+
+
 
 
 
