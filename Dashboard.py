@@ -5,7 +5,6 @@ import yfinance as yf
 import streamlit as st
 import plotly.express as px
 import pandas_datareader.data as web
-import pandas as pd
 
 # Dictionnaires
 
@@ -60,11 +59,7 @@ yields_10y = ["IRLTLT01USM156N","IRLTLT01ITM156N","IRLTLT01ESM156N",
               "IRLTLT01DEM156N","IRLTLT01GBM156N","IRLTLT01PTM156N",
               "IRLTLT01FRM156N","IRLTLT01JPM156N","IRLTLT01GRM156N"]
 
-names = {"CPIAUCNS": "CPI","GDP": "GDP","DGS10": "U.S. 10Y Treasury",
-         "IRLTLT01DEM156N": "Germany","IRLTLT01FRM156N": "France",
-         "IRLTLT01ITM156N": "Italy","IRLTLT01GBM156N": "United Kingdom",
-         "IRLTLT01JPM156N": "Japan","IRLTLT01ESM156N": "Spain",
-         "IRLTLT01PTM156N": "Portugal","IRLTLT01GRM156N": "Greece"}
+
 
 
 
@@ -198,26 +193,22 @@ with col2:
     
 
 st.subheader("OECD Rates")
-
 oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
 rates_df = oecd_rates.reset_index()
 rates_df.columns = ["Country", "Yield"]
 rates_df = rates_df.sort_values(by="Yield", ascending=True)
-fig = px.bar(rates_df,x="Country",y="Yield",text=rates_df["Yield"].round(2))
+fig = px.bar(rates_df, x="Country", y="Yield", text=rates_df["Yield"].round(2))
 fig.update_traces(textposition='outside')
 st.plotly_chart(fig, use_container_width=True)
 
 
 st.subheader("US Rates")
-
 us_rates = download_fred_series(us_yields, "01-01-2000").iloc[-1]
 us_df = us_rates.reset_index()
 us_df.columns = ["Maturity", "Yield"]
-fig_us = px.bar(us_df,x="Maturity",y="Yield",text=us_df["Yield"].round(2))
+fig_us = px.bar(us_df, x="Maturity", y="Yield", text=us_df["Yield"].round(2))
 fig_us.update_traces(textposition='outside')
 st.plotly_chart(fig_us, use_container_width=True)
-
-
 
 
 
