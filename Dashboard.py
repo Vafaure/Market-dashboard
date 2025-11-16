@@ -60,8 +60,9 @@ yields_10y = ["IRLTLT01USM156N","IRLTLT01ITM156N","IRLTLT01ESM156N",
               "IRLTLT01DEM156N","IRLTLT01GBM156N","IRLTLT01PTM156N",
               "IRLTLT01FRM156N","IRLTLT01JPM156N","IRLTLT01GRM156N"]
 
+inflation_us = ["FPCPITOTLZGUSA"]
 
-
+gdp_us = ["GDP"]
 
 
 
@@ -162,7 +163,8 @@ with col1:
                                  default="1 Month")
     
         equity_choice = st.multiselect("Equity", equity_dict.keys(), 
-                                       default=["Apple","Microsoft","Alphabet"])
+                                       default=["Apple","Microsoft",
+                                                "Alphabet"])
         commodity_choice = st.multiselect("Commodity", commodity_dict.keys())
         index_choice = st.multiselect("Index", index_dict.keys())
         forex_choice = st.multiselect("Forex", forex_dict.keys())
@@ -182,7 +184,8 @@ data_norm = normalize(data)
 
 
 with col2:
-    tab1, tab2, tab3, tab4 = st.tabs(["Chart","Correlation matrix","Volatility","Data"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Chart","Correlation matrix",
+                                      "Volatility","Data"])
     
     with tab1:
         fig = plot_data(data, data_norm, ticker, logscale)
@@ -203,34 +206,52 @@ with col2:
         st.dataframe(data)
     
 st.write("")
+st.write("")
 st.subheader("Economic data")
 
 col1, col2 = st.columns(2)
 
 with col1:
     with st.container(border=True):
-        st.subheader("OECD Rates")
+        st.subheader("OECD central banks rates")
         oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
         rates_df = oecd_rates.reset_index()
         rates_df.columns = ["Country", "Yield"]
         rates_df = rates_df.sort_values(by="Yield", ascending=True)
-        fig = px.bar(rates_df, x="Country", y="Yield", text=rates_df["Yield"].round(2))
+        fig = px.bar(rates_df, x="Country", y="Yield", 
+                     text=rates_df["Yield"].round(2))
         fig.update_traces(textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
         
 with col2:
     with st.container(border=True):
-        st.subheader("US Rates")
+        st.subheader("FED rates over maturities")
         us_rates = download_fred_series(us_yields, "01-01-2000").iloc[-1]
         us_df = us_rates.reset_index()
         us_df.columns = ["Maturity", "Yield"]
-        fig_us = px.bar(us_df, x="Maturity", y="Yield", text=us_df["Yield"].round(2))
+        fig_us = px.bar(us_df, x="Maturity", y="Yield", 
+                        text=us_df["Yield"].round(2))
         fig_us.update_traces(textposition='outside')
-        st.plotly_chart(fig_us, use_container_width=True)
+        st.plotly_chart(fig_us)
    
 
+with col1:
+    with st.container(border=True):
+        st.subheader("US Inflation rate")
+        us_inflation_rate = download_fred_series(inflation_us, "01-01-2000")
+        inflation_df = us_inflation_rate.reset_index()
+        inflation_df.columns = ["Date", "Inflation"]
+        fig_inflation = px.line(inflation_df, x="Date", y="Inflation")
+        st.plotly_chart(fig_inflation)
 
-
+with col2:
+    with st.container(border=True):
+        st.subheader("US GDP")
+        us_gdp_rate = download_fred_series(gdp_us, "01-01-2000")
+        gdp_df = us_gdp_rate.reset_index()
+        gdp_df.columns = ["Date", "GDP"]
+        fig_gdp = px.line(gdp_df, x="Date", y="GDP")
+        st.plotly_chart(fig_gdp)
 
 
 
