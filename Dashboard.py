@@ -112,19 +112,22 @@ def perf_metrics(data):
 
 def show_metrics(data, ticker):
     perf = perf_metrics(data)
-    if len(ticker) == 1:
-        st.metric("Quote", value=f"${data.iloc[-1].item():,.2f}", 
-                  delta=f"{perf.item():,.2f} %")
-    elif len(ticker) > 1:
-        best = perf.idxmax()
-        worst = perf.idxmin()
-        col1, col2, col3, col4, col5, col6, col7= st.columns(7)
-        with col1:
-            st.metric("Best growth", value=best, 
-                      delta=f"{perf.loc[best]:,.2f} %")
-        with col2:
-            st.metric("Worst growth", value=worst, 
-                      delta=f"{perf.loc[worst]:,.2f} %")
+    # On crée une liste de groupes de 5 tickers
+    for i in range(0, len(ticker), 5):
+        # Pour chaque groupe de 5, on crée une ligne de colonnes
+        cols = st.columns(5)
+        for j in range(5):
+            idx = i + j
+            if idx < len(ticker):  # On vérifie qu'on ne dépasse pas la liste
+                t = ticker[idx]
+                with cols[j]:
+                    with st.container(border=True):
+                        st.metric(
+                            label=t,
+                            value=f"${data[t].iloc[-1]:,.2f}",
+                            delta=f"{perf[t]:,.2f} %")
+
+
 
 
 def correlation (data):
@@ -190,7 +193,7 @@ with col2:
     with tab1:
         fig = plot_data(data, data_norm, ticker, logscale)
         st.plotly_chart(fig)
-        st.subheader ("Metrics")
+        st.subheader ("Selection")
         metrics_display = show_metrics(data,ticker)
     
     with tab2:
@@ -213,7 +216,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     with st.container(border=True):
-        st.subheader("OECD central banks rates")
+        st.subheader("OECD Central Banks rates")
         oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
         rates_df = oecd_rates.reset_index()
         rates_df.columns = ["Country", "Yield"]
