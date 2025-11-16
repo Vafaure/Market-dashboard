@@ -5,6 +5,7 @@ import yfinance as yf
 import streamlit as st
 import plotly.express as px
 import pandas_datareader.data as web
+import numpy as np
 
 # Dictionnaires
 
@@ -140,7 +141,12 @@ def download_fred_series(series_names, start_date):
 
 
 
-    
+def historical_volatility(data, annualize=True):
+    returns = np.log(data / data.shift(1)).dropna()
+    vol = returns.std()
+    if annualize:
+        vol = vol * np.sqrt(252)
+    return vol    
     
 
 # Dashboard
@@ -176,7 +182,7 @@ data_norm = normalize(data)
 
 
 with col2:
-    tab1, tab2, tab3 = st.tabs(["Chart","Correlation matrix","Data"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Chart","Correlation matrix","Volatility","Data"])
     
     with tab1:
         fig = plot_data(data, data_norm, ticker, logscale)
@@ -189,28 +195,39 @@ with col2:
         st.plotly_chart(correlation_matrix, use_container_width=True)
         
     with tab3:
+        vol = historical_volatility(data)
+        vol.name = "Historical Volatility (%)"
+        st.table((vol * 100).round(4))
+        
+    with tab4:
         st.dataframe(data)
     
+st.write("")
+st.subheader("Economic data")
 
-st.subheader("OECD Rates")
-oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
-rates_df = oecd_rates.reset_index()
-rates_df.columns = ["Country", "Yield"]
-rates_df = rates_df.sort_values(by="Yield", ascending=True)
-fig = px.bar(rates_df, x="Country", y="Yield", text=rates_df["Yield"].round(2))
-fig.update_traces(textposition='outside')
-st.plotly_chart(fig, use_container_width=True)
+col1, col2 = st.columns(2)
 
-
-st.subheader("US Rates")
-us_rates = download_fred_series(us_yields, "01-01-2000").iloc[-1]
-us_df = us_rates.reset_index()
-us_df.columns = ["Maturity", "Yield"]
-fig_us = px.bar(us_df, x="Maturity", y="Yield", text=us_df["Yield"].round(2))
-fig_us.update_traces(textposition='outside')
-st.plotly_chart(fig_us, use_container_width=True)
-
-
+with col1:
+    with st.container(border=True):
+        st.subheader("OECD Rates")
+        oecd_rates = download_fred_series(yields_10y, "01-01-2000").iloc[-1]
+        rates_df = oecd_rates.reset_index()
+        rates_df.columns = ["Country", "Yield"]
+        rates_df = rates_df.sort_values(by="Yield", ascending=True)
+        fig = px.bar(rates_df, x="Country", y="Yield", text=rates_df["Yield"].round(2))
+        fig.update_traces(textposition='outside')
+        st.plotly_chart(fig, use_container_width=True)
+        
+with col2:
+    with st.container(border=True):
+        st.subheader("US Rates")
+        us_rates = download_fred_series(us_yields, "01-01-2000").iloc[-1]
+        us_df = us_rates.reset_index()
+        us_df.columns = ["Maturity", "Yield"]
+        fig_us = px.bar(us_df, x="Maturity", y="Yield", text=us_df["Yield"].round(2))
+        fig_us.update_traces(textposition='outside')
+        st.plotly_chart(fig_us, use_container_width=True)
+   
 
 
 
