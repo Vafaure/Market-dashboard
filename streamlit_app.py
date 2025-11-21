@@ -1,4 +1,4 @@
-# streamlit run "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Dashboard project/Dashboard.py"
+# streamlit run "/Users/valentinfaure/Documents/Academique/SKEMA/M2/FMI/Cours/Python/Dashboard project/streamlit_app.py"
 
 
 import yfinance as yf
