@@ -187,8 +187,9 @@ data_norm = normalize(data)
 
 
 with col2:
-    tab1, tab2, tab3, tab4 = st.tabs(["Chart","Correlation matrix",
-                                      "Volatility","Data"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chart","Correlation matrix",
+                                            "Market regime","Volatility",
+                                            "Data"])
     
     with tab1:
         fig = plot_data(data, data_norm, ticker, logscale)
@@ -201,11 +202,14 @@ with col2:
         st.plotly_chart(correlation_matrix, use_container_width=True)
         
     with tab3:
+        st.subheader ("TBD")
+        
+    with tab4:
         vol = historical_volatility(data)
         vol.name = "Historical Volatility (%)"
         st.table((vol * 100).round(4))
         
-    with tab4:
+    with tab5:
         st.dataframe(data)
     
 st.write("")
