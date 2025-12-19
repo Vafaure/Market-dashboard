@@ -1,5 +1,6 @@
 yfinance
 streamlit
 plotly.express
-pandas_datareader
 numpy
+pandas_datareader.data
+pandas
