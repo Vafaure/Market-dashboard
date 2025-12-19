@@ -345,7 +345,7 @@ with col2:
                                             "Regime",
                                             "Data"])
     
-    with st.spinner("Downloading data..."):
+    with st.spinner("Processing data..."):
         yfinance_data = fetch_yfinance_data(tickers, period)
         fred_data = fetch_fred_data(yfinance_data.index[0], SERIES)
         yfinance_fig = plot_yfinance_data(yfinance_data, tickers, logscale)
