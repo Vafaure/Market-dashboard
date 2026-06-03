@@ -35,7 +35,36 @@ st.markdown(
         background-color: transparent;
         border-radius: 4px 4px 0px 0px;
         padding-top: 10px;
-        padding-bottom: 10px;
+    /* Compact metrics */
+    [data-testid="stMetric"] {
+        padding: 8px 12px !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.3rem !important;
+    }
+    [data-testid="stMetric"] canvas {
+        max-height: 40px !important;
+    }
+    /* Clean Table Headers */
+    thead tr th {
+        background-color: rgba(140, 120, 81, 0.1) !important;
+        color: #1a1a1a !important;
+        border-bottom: 2px solid #8c7851 !important;
+    }
+    tbody tr th {
+        background-color: transparent !important;
+    }
+    /* Hide native Streamlit 'Running...' spinner */
+    [data-testid="stStatusWidget"] {
+        visibility: hidden;
+    }
+    /* Disable the gray 'stale' effect when rerunning */
+    [data-testid="stElementContainer"], 
+    [data-testid="stMarkdownContainer"], 
+    [data-testid="stBlock"], 
+    [data-testid="stVerticalBlock"] {
+        opacity: 1 !important;
+        transition: none !important;
     }
     </style>
     """,
@@ -638,8 +667,8 @@ with col1:
         logscale = st.toggle("Log-scale",value=False)
 
         if len(tickers) == 0:
-                    st.toast("Please select at least one ticker to continue.", icon="⚠️")
-                    st.stop()
+            st.toast("Please select at least one ticker to continue.", icon="⚠️")
+            st.stop()
                     
     with st.container(border=True):
         st.markdown("#### Top News")
@@ -656,14 +685,11 @@ with col1:
         else:
             st.write("No news available.")
 
-
-
-
 with col2:
     tab1, tab2, tab3, tab5 = st.tabs(["Market Overview",
-                                            "Correlation matrix",
-                                            "Volatility",
-                                            "Data"])
+                                      "Correlation matrix",
+                                      "Volatility",
+                                      "Data"])
     
     with st.spinner("Processing data..."):
         # Fetch max data for selected tickers
@@ -697,35 +723,36 @@ with col2:
         st.dataframe(yfinance_data)
     
     metrics_yfinance_data(yfinance_data)
-    
 
-st.write("---")
-st.subheader("Yield Curves")
+    st.write("---")
 
-with st.spinner("Fetching ECB & US Treasury data..."):
-    ecb_data = fetch_ecb_yield_curve()
-    govies_data = fetch_ecb_govies_10y()
-    ecb_rate_series = fetch_ecb_policy_rate()
-    us_treasury_data = fetch_us_treasury_yield_curve()
-    fed_rate = fetch_fed_policy_rate()
+    with st.spinner("Fetching ECB & US Treasury data..."):
+        ecb_data = fetch_ecb_yield_curve()
+        govies_data = fetch_ecb_govies_10y()
+        ecb_rate_series = fetch_ecb_policy_rate()
+        us_treasury_data = fetch_us_treasury_yield_curve()
+        fed_rate = fetch_fed_policy_rate()
 
-col_curve, col_govies = st.columns([3, 1])
-
-with col_curve:
-    tab_eu, tab_us = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States"])
-
-    with tab_eu:
-        ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
-        st.plotly_chart(ecb_bar_fig, use_container_width=True)
-
-    with tab_us:
-        us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
-        st.plotly_chart(us_bar_fig, use_container_width=True)
-
-with col_govies:
-    st.markdown("#### EU 10Y Govies")
-    latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
-    govies_df = latest_govies.reset_index()
-    govies_df.columns = ["Country", "Yield (%)"]
-    govies_df["Yield (%)"] = govies_df["Yield (%)"].map("{:.2f} %".format)
-    st.dataframe(govies_df, hide_index=True, use_container_width=True)
+    st.subheader("Yield Curves")
+    col_curve, col_govies = st.columns([2.5, 1])
+    with col_curve:
+        tab_eu, tab_us = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States"])
+        with tab_eu:
+            ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
+            st.plotly_chart(ecb_bar_fig, use_container_width=True)
+        with tab_us:
+            us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
+            st.plotly_chart(us_bar_fig, use_container_width=True)
+    with col_govies:
+        st.markdown("#### EU 10Y Govies")
+        latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
+        govies_df = latest_govies.reset_index()
+        govies_df.columns = ["Country", "Yield (%)"]
+        govies_df["Yield (%)"] = govies_df["Yield (%)"].map("{:.2f} %".format)
+        
+        # Attempt to style header via Pandas Styler
+        styled_df = govies_df.style.set_table_styles([{
+            'selector': 'th',
+            'props': [('background-color', 'rgba(140, 120, 81, 0.1)')]
+        }])
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
