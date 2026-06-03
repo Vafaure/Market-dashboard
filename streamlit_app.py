@@ -10,16 +10,33 @@ import io
 
 st.set_page_config(layout="wide", page_title="Market dashboard")
 
-# Force full width and reduce padding
+# Force full width, custom font, and sleek tabs
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
     .block-container {
         padding-top: 2rem;
         padding-bottom: 0rem;
         padding-left: 2rem;
         padding-right: 2rem;
         max-width: 100%;
+    }
+    /* Sleeker tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: transparent;
+        border-radius: 4px 4px 0px 0px;
+        padding-top: 10px;
+        padding-bottom: 10px;
     }
     </style>
     """,
@@ -171,6 +188,35 @@ ECB_GOVIES_10Y = {
 
 ##### FUNCTIONS #####
 
+@st.cache_data(ttl=900)
+def fetch_top_news():
+    # Tickers for US, Europe, and Asia
+    tickers = ["^GSPC", "^STOXX50E", "^N225"]
+    parsed_news = []
+    seen_titles = set()
+    
+    for t in tickers:
+        try:
+            news_items = yf.Ticker(t).news
+            if news_items:
+                for item in news_items[:3]:
+                    content = item.get("content") or {}
+                    title = content.get("title") or "No Title"
+                    
+                    if title in seen_titles or title == "No Title":
+                        continue
+                        
+                    seen_titles.add(title)
+                    click_info = content.get("clickThroughUrl")
+                    url = click_info.get("url") if click_info and isinstance(click_info, dict) else "#"
+                    parsed_news.append({"title": title, "url": url})
+        except Exception:
+            pass
+            
+    # Return top 6 items total
+    return parsed_news[:6]
+
+
 @st.cache_data(ttl=3600)
 def fetch_yfinance_data(tickers):
     tickers_list = list(tickers)
@@ -189,14 +235,18 @@ def plot_yfinance_data (yfinance_data, tickers, logscale):
         yfinance_fig = px.line(yfinance_data, 
                                x=yfinance_data.index, 
                                y=yfinance_data.columns, 
-                               log_y=logscale)
+                               log_y=logscale,
+                               template="plotly_white")
     else:
         yfinance_fig = px.line(yfinance_data_norm,
                                x=yfinance_data_norm.index, 
                                y=yfinance_data_norm.columns, 
-                               log_y=logscale)
+                               log_y=logscale,
+                               template="plotly_white")
         yfinance_fig.update_yaxes(tickformat=".0%")
         yfinance_fig.update_layout(hovermode='x')
+        
+    yfinance_fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     return yfinance_fig
 
 
@@ -227,12 +277,13 @@ def get_ticker(equity_choice,commodity_choice,index_choice,forex_choice):
     return tickers
 
 
-def yfinance_data_correlation (yfinance_data):
+def yfinance_data_correlation(yfinance_data):
     correlation_data = yfinance_data.corr()
-    correlation_fig = px.imshow(correlation_data,text_auto=True,color_continuous_scale="RdYlGn",
-                     zmin=-1, zmax=1)
-    correlation_fig.update_xaxes(side="top",title=None)
+    correlation_fig = px.imshow(correlation_data, text_auto=True, color_continuous_scale="RdYlGn",
+                     zmin=-1, zmax=1, template="plotly_white")
+    correlation_fig.update_xaxes(side="top", title=None)
     correlation_fig.update_yaxes(title=None)
+    correlation_fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     return correlation_fig
 
 
@@ -251,9 +302,10 @@ def plot_volatility(yfinance_data):
                  title="Historic Volatility (Annualized)",
                  text="Volatility (%)",
                  color="Volatility (%)",
-                 color_continuous_scale="Reds")
+                 color_continuous_scale="Reds",
+                 template="plotly_white")
     fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig.update_layout(xaxis_title="Annualized Volatility (%)", yaxis_title="Asset")
+    fig.update_layout(xaxis_title="Annualized Volatility (%)", yaxis_title="Asset", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     return fig
 
 
@@ -398,10 +450,11 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
                  markers=True,
                  category_orders=category_orders,
                  range_y=[y_min, y_max],
-                 title="Euro Area Yield Curve (Animated 10-Year History)")
+                 title="Euro Area Yield Curve (Animated 10-Year History)",
+                 template="plotly_white")
                  
     fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
-    fig.update_layout(showlegend=False)
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     
     # Speed up animation slightly
     if fig.layout.updatemenus:
@@ -563,10 +616,11 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
                  markers=True,
                  category_orders=category_orders,
                  range_y=[y_min, y_max],
-                 title="US Treasury Yield Curve (Animated 10-Year History)")
+                 title="US Treasury Yield Curve (Animated 10-Year History)",
+                 template="plotly_white")
                  
     fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
-    fig.update_layout(showlegend=False)
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     
     # Speed up animation slightly
     if fig.layout.updatemenus:
@@ -612,6 +666,20 @@ def get_ticker_tape_html():
 ##### CODE #####
 
 st.title("Market Dashboard")
+st.markdown("""
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+        <span style="font-size: 1.1em; font-weight: 500; color: #555;">By Valentin Fauré</span>
+        <a href="https://www.linkedin.com/in/faure-valentin" target="_blank" style="text-decoration: none;">
+            <div style="display: flex; align-items: center; justify-content: center; background-color: #0077b5; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; transition: 0.3s; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="margin-right: 6px;">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                </svg>
+                Connect on LinkedIn
+            </div>
+        </a>
+    </div>
+""", unsafe_allow_html=True)
+
 
 tape_content = get_ticker_tape_html()
 if tape_content:
@@ -670,14 +738,26 @@ with col1:
                                       default="S&P 500 (^GSPC)")
         forex_choice = st.multiselect("Forex", 
                                       ASSETS["Forex"].keys())
+                                      
         tickers = get_ticker(equity_choice, 
                              commodity_choice, 
                              index_choice, 
                              forex_choice)
+                             
         logscale = st.toggle("Log-scale",value=False)
+
         if len(tickers) == 0:
                     st.toast("Please select at least one ticker to continue.", icon="⚠️")
                     st.stop()
+                    
+    with st.container(border=True):
+        st.markdown("#### Top News")
+        news = fetch_top_news()
+        if news:
+            for n in news:
+                st.markdown(f"• [{n['title']}]({n['url']})")
+        else:
+            st.write("No news available.")
 
 
 
@@ -704,6 +784,8 @@ with col2:
     
     with tab1:
         st.plotly_chart(yfinance_fig)
+        latest_date = yfinance_data.index[-1].strftime("%d/%m/%Y")
+        st.markdown(f"<p style='text-align: right; font-style: italic; color: #8c7851; font-size: 0.85em; margin-top: -20px; opacity: 0.7;'>Data as of {latest_date}</p>", unsafe_allow_html=True)
         
     with tab2:
         correlation_fig = yfinance_data_correlation(yfinance_data)
@@ -726,7 +808,6 @@ with col2:
     with tab5:
         st.dataframe(yfinance_data)
     
-    st.write("---")
     metrics_yfinance_data(yfinance_data)
     
 
