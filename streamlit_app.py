@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from fpdf import FPDF
 import tempfile
 import os
+import concurrent.futures
 
 st.set_page_config(layout="wide", page_title="Market dashboard")
 
@@ -234,12 +235,14 @@ def plot_yfinance_data (yfinance_data, tickers, logscale):
     yfinance_data_norm = yfinance_data / yfinance_data.iloc[0]
     if len(tickers) == 1:
         yfinance_fig = px.line(yfinance_data, 
+                               render_mode="webgl",
                                x=yfinance_data.index, 
                                y=yfinance_data.columns, 
                                log_y=logscale,
                                template="plotly_white")
     else:
         yfinance_fig = px.line(yfinance_data_norm,
+                               render_mode="webgl",
                                x=yfinance_data_norm.index, 
                                y=yfinance_data_norm.columns, 
                                log_y=logscale,
@@ -366,6 +369,7 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
+                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
@@ -399,6 +403,7 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
 
 def plot_ecb_yield_curve_line(ecb_data):
     fig = px.line(ecb_data,
+                 render_mode="webgl",
                   x=ecb_data.index,
                   y=ecb_data.columns,
                   title="Euro Area Yields over time")
@@ -444,17 +449,20 @@ def fetch_ecb_policy_rate():
 def fetch_us_treasury_yield_curve():
     current_year = pd.Timestamp.today().year
     years = list(range(current_year - 10, current_year + 1))
-    dfs = []
-    
-    for year in years:
+    def fetch_year(year):
         url = f"https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve&field_tdr_date_value={year}&page&_format=csv"
         try:
             resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             if resp.status_code == 200:
-                df_year = pd.read_csv(io.StringIO(resp.text))
-                dfs.append(df_year)
+                return pd.read_csv(io.StringIO(resp.text))
         except Exception:
-            continue
+            pass
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = executor.map(fetch_year, years)
+    
+    dfs = [df for df in results if df is not None]
             
     if dfs:
         df = pd.concat(dfs, ignore_index=True)
@@ -533,6 +541,7 @@ def plot_japan_yield_curve(japan_data):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
+                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
@@ -605,6 +614,7 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
+                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
@@ -750,9 +760,9 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_us:
-        plt.savefig(f_us.name, dpi=150)
-        us_img_path = f_us.name
+    us_img_buf = io.BytesIO()
+    plt.savefig(us_img_buf, format='png', dpi=150)
+    us_img_buf.seek(0)
     plt.close()
 
     # Euro Yield Curve
@@ -778,9 +788,9 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_ecb:
-        plt.savefig(f_ecb.name, dpi=150)
-        ecb_img_path = f_ecb.name
+    ecb_img_buf = io.BytesIO()
+    plt.savefig(ecb_img_buf, format='png', dpi=150)
+    ecb_img_buf.seek(0)
     plt.close()
 
     # Japan Yield Curve
@@ -805,9 +815,9 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.xticks(rotation=45)
     plt.tight_layout()
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_jp:
-        plt.savefig(f_jp.name, dpi=150)
-        jp_img_path = f_jp.name
+    jp_img_buf = io.BytesIO()
+    plt.savefig(jp_img_buf, format='png', dpi=150)
+    jp_img_buf.seek(0)
     plt.close()
 
     pdf = CustomPDF()
@@ -942,9 +952,9 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
     
-    pdf.image(us_img_path, x=20, w=170)
+    pdf.image(us_img_buf, x=20, w=170)
     pdf.ln(2)
-    pdf.image(ecb_img_path, x=20, w=170)
+    pdf.image(ecb_img_buf, x=20, w=170)
     
     # Japan Curve - put it on a new page to avoid overflow
     pdf.add_page()
@@ -953,11 +963,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.cell(0, 8, "Yield Curves (Continued)", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
-    pdf.image(jp_img_path, x=20, w=170)
-    
-    os.remove(us_img_path)
-    os.remove(ecb_img_path)
-    os.remove(jp_img_path)
+    pdf.image(jp_img_buf, x=20, w=170)
     
     return bytes(pdf.output())
 
@@ -1064,25 +1070,27 @@ with col1:
         else:
             st.write("No news available.")
 
-    with st.container(border=True):
-        st.markdown("#### Export Report")
-        
-        # We fetch the data and generate the PDF right away. 
-        # The caching ensures this is extremely fast after the first run.
-        us_treasury_data = fetch_us_treasury_yield_curve()
-        ecb_data = fetch_ecb_yield_curve()
-        fed_rate = fetch_fed_policy_rate()
-        ecb_rate_series = fetch_ecb_policy_rate()
-        govies_data = fetch_ecb_govies_10y()
-        japan_data = fetch_japan_yield_curve()
-        
-        pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data)
-        
-        st.download_button("📄 Download PDF Recap", 
-                           data=pdf_bytes, 
-                           file_name="market_recap.pdf", 
-                           mime="application/pdf",
-                           use_container_width=True)
+    @st.fragment
+    def render_export_report():
+        with st.container(border=True):
+            st.markdown("#### Export Report")
+            
+            us_treasury_data = fetch_us_treasury_yield_curve()
+            ecb_data = fetch_ecb_yield_curve()
+            fed_rate = fetch_fed_policy_rate()
+            ecb_rate_series = fetch_ecb_policy_rate()
+            govies_data = fetch_ecb_govies_10y()
+            japan_data = fetch_japan_yield_curve()
+            
+            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data)
+            
+            st.download_button("📄 Download PDF Recap", 
+                               data=pdf_bytes, 
+                               file_name="market_recap.pdf", 
+                               mime="application/pdf",
+                               use_container_width=True)
+
+    render_export_report()
 
 with col2:
     tab1, tab2, tab3, tab5 = st.tabs(["Market Overview",
@@ -1126,12 +1134,20 @@ with col2:
     st.write("---")
 
     with st.spinner("Fetching ECB, US Treasury & JGB data..."):
-        ecb_data = fetch_ecb_yield_curve()
-        govies_data = fetch_ecb_govies_10y()
-        ecb_rate_series = fetch_ecb_policy_rate()
-        us_treasury_data = fetch_us_treasury_yield_curve()
-        fed_rate = fetch_fed_policy_rate()
-        japan_data = fetch_japan_yield_curve()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_ecb = executor.submit(fetch_ecb_yield_curve)
+            future_govies = executor.submit(fetch_ecb_govies_10y)
+            future_ecb_rate = executor.submit(fetch_ecb_policy_rate)
+            future_us = executor.submit(fetch_us_treasury_yield_curve)
+            future_fed = executor.submit(fetch_fed_policy_rate)
+            future_jp = executor.submit(fetch_japan_yield_curve)
+            
+            ecb_data = future_ecb.result()
+            govies_data = future_govies.result()
+            ecb_rate_series = future_ecb_rate.result()
+            us_treasury_data = future_us.result()
+            fed_rate = future_fed.result()
+            japan_data = future_jp.result()
 
     st.subheader("Yield Curves")
     col_curve, col_govies = st.columns([2.5, 1])
