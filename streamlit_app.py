@@ -28,28 +28,17 @@ st.markdown(
 
 ##### DICT #####
 
-period_dict = {
-    "1 Month": "1mo",
-    "3 Months": "3mo",
-    "6 Months": "6mo",
-    "1 Year": "1y",
-    "5 Years": "5y",
-    "10 Years": "10y",
-    "20 Years": "20y",
-    "Max": "max"
+period_offset_dict = {
+    "1 Month": pd.DateOffset(months=1),
+    "3 Months": pd.DateOffset(months=3),
+    "6 Months": pd.DateOffset(months=6),
+    "1 Year": pd.DateOffset(years=1),
+    "5 Years": pd.DateOffset(years=5),
+    "10 Years": pd.DateOffset(years=10),
+    "20 Years": pd.DateOffset(years=20),
+    "Max": None
 }
 
-
-vol_window_dict = {
-    "5 Days (1w)": 5,
-    "21 Days (1m)": 21,
-    "63 Days (3m)": 63,
-    "126 Days (6m)": 126,
-    "252 Days (1y)": 252,
-    "756 Days (3y)": 756,
-    "1260 Days (5y)": 1260,
-    "2520 Days (10y)": 2520
-}
 
 ASSETS = {
     "Equity": {
@@ -182,8 +171,10 @@ ECB_GOVIES_10Y = {
 
 ##### FUNCTIONS #####
 
-def fetch_yfinance_data(tickers, period):
-    yfinance_data = yf.download(tickers, period=period)["Close"].ffill().dropna()
+@st.cache_data(ttl=3600)
+def fetch_yfinance_data(tickers):
+    tickers_list = list(tickers)
+    yfinance_data = yf.download(tickers_list, period="max", progress=False)["Close"].ffill().dropna()
     rename_map = {}
     for category, assets in ASSETS.items():
         for name_displayed, ticker in assets.items():
@@ -245,16 +236,24 @@ def yfinance_data_correlation (yfinance_data):
     return correlation_fig
 
 
-def plot_volatility(yfinance_data, window,logscale):
+def plot_volatility(yfinance_data):
     log_returns = np.log(yfinance_data / yfinance_data.shift(1))
-    volatility = round(log_returns.rolling(window=window).std() * np.sqrt(252) * 100,2)
-    volatility = volatility.dropna() 
-    fig = px.line(volatility,
-                  title=f"Historic Volatility ({window} Days Rolling)",
-                  log_y=logscale) 
-    fig.update_layout(
-        yaxis_title="Annualized Volatility (%)", 
-        hovermode='x')
+    volatility = round(log_returns.std() * np.sqrt(252) * 100, 2)
+    
+    vol_df = volatility.reset_index()
+    vol_df.columns = ["Asset", "Volatility (%)"]
+    vol_df = vol_df.sort_values(by="Volatility (%)", ascending=True)
+    
+    fig = px.bar(vol_df, 
+                 x="Volatility (%)", 
+                 y="Asset", 
+                 orientation='h',
+                 title="Historic Volatility (Annualized)",
+                 text="Volatility (%)",
+                 color="Volatility (%)",
+                 color_continuous_scale="Reds")
+    fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    fig.update_layout(xaxis_title="Annualized Volatility (%)", yaxis_title="Asset")
     return fig
 
 
@@ -408,6 +407,17 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
     if fig.layout.updatemenus:
         fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 150
         
+    # Set default to the last frame
+    if fig.frames:
+        last_frame = fig.frames[-1]
+        for trace_idx in range(min(len(fig.data), len(last_frame.data))):
+            fig.data[trace_idx].x = last_frame.data[trace_idx].x
+            fig.data[trace_idx].y = last_frame.data[trace_idx].y
+            if hasattr(last_frame.data[trace_idx], 'text'):
+                fig.data[trace_idx].text = last_frame.data[trace_idx].text
+        if fig.layout.sliders:
+            fig.layout.sliders[0].active = len(fig.frames) - 1
+
     return fig
 
 
@@ -456,54 +466,123 @@ def fetch_ecb_policy_rate():
 
 @st.cache_data(ttl=3600)
 def fetch_us_treasury_yield_curve():
-    def get_data(date_obj):
-        ym = date_obj.strftime("%Y%m")
-        url = f"https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/{ym}?type=daily_treasury_yield_curve&field_tdr_date_value_month={ym}&page&_format=csv"
-        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if resp.status_code == 200:
-            df = pd.read_csv(io.StringIO(resp.text))
-            if not df.empty:
-                return df
-        return None
-
-    today = pd.Timestamp.today()
-    df = get_data(today)
-    if df is None:
-        df = get_data(today - pd.DateOffset(months=1))
+    current_year = pd.Timestamp.today().year
+    years = list(range(current_year - 10, current_year + 1))
+    dfs = []
+    
+    for year in years:
+        url = f"https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve&field_tdr_date_value={year}&page&_format=csv"
+        try:
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if resp.status_code == 200:
+                df_year = pd.read_csv(io.StringIO(resp.text))
+                dfs.append(df_year)
+        except Exception:
+            continue
+            
+    if dfs:
+        df = pd.concat(dfs, ignore_index=True)
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date").sort_index()
+        maturities = ['1 Mo', '2 Mo', '3 Mo', '4 Mo', '6 Mo', '1 Yr', '2 Yr', '3 Yr', '5 Yr', '7 Yr', '10 Yr', '20 Yr', '30 Yr']
+        existing_mats = [m for m in maturities if m in df.columns]
+        df = df[existing_mats]
         
-    maturities = ['1 Mo', '3 Mo', '6 Mo', '1 Yr', '2 Yr', '3 Yr', '5 Yr', '7 Yr', '10 Yr', '20 Yr', '30 Yr']
-    latest = df.iloc[0][maturities]
-    df_plot = latest.reset_index()
-    df_plot.columns = ["Maturity", "Yield (%)"]
-    df_plot["Yield (%)"] = pd.to_numeric(df_plot["Yield (%)"], errors="coerce")
-    return df_plot
+        # Convert all to numeric (handles "N/A" strings in the CSV)
+        for col in existing_mats:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            
+        return df
+    return pd.DataFrame()
 
 
 @st.cache_data(ttl=3600)
 def fetch_fed_policy_rate():
-    url = "https://markets.newyorkfed.org/api/rates/all/latest.json"
+    end_date = pd.Timestamp.today().strftime("%Y-%m-%d")
+    start_date = (pd.Timestamp.today() - pd.DateOffset(years=11)).strftime("%Y-%m-%d")
+    url = f"https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json?startDate={start_date}&endDate={end_date}"
     resp = requests.get(url, timeout=10)
     if resp.status_code == 200:
         data = resp.json()
-        for rate in data.get("refRates", []):
-            if rate.get("type") == "EFFR":
-                return rate.get("percentRate")
-    return None
+        rates = data.get("refRates", [])
+        if rates:
+            df = pd.DataFrame(rates)
+            df["effectiveDate"] = pd.to_datetime(df["effectiveDate"])
+            df = df.set_index("effectiveDate").sort_index()
+            return df["percentRate"]
+    return pd.Series(dtype=float)
 
 
-def plot_us_treasury_yield_curve(df_plot, fed_rate):
-    if fed_rate is not None:
-        fed_row = pd.DataFrame([{"Maturity": "Fed Rate", "Yield (%)": fed_rate}])
-        df_plot = pd.concat([fed_row, df_plot], ignore_index=True)
+def plot_us_treasury_yield_curve(us_data, fed_rate_series):
+    if us_data.empty or fed_rate_series.empty:
+        return px.line(title="Data not available")
         
-    fig = px.line(df_plot,
+    # Resample to Weekly to keep animation fluid and lightweight
+    us_data_w = us_data.resample('W-FRI').last().dropna(how='all')
+    fed_rate_w = fed_rate_series.resample('W-FRI').last().dropna()
+    
+    # Align dates to avoid frames with only the Fed Rate
+    common_dates = us_data_w.index.intersection(fed_rate_w.index)
+    us_data_w = us_data_w.loc[common_dates]
+    fed_rate_w = fed_rate_w.loc[common_dates]
+    
+    # Restaure the index name to "Date" in case the intersection stripped it
+    us_data_w.index.name = "Date"
+    
+    # Melt US Data
+    df_melted = us_data_w.reset_index().melt(id_vars="Date", var_name="Maturity", value_name="Yield (%)")
+    
+    # Create Fed Rate Dataframe
+    fed_df = pd.DataFrame({
+        "Date": fed_rate_w.index,
+        "Maturity": "Fed Rate",
+        "Yield (%)": fed_rate_w.values
+    })
+    
+    # Combine and drop NaNs to ensure the line connects all available points
+    df_combined = pd.concat([fed_df, df_melted], ignore_index=True).dropna(subset=["Yield (%)"])
+    df_combined["Date_str"] = df_combined["Date"].dt.strftime('%Y-%m-%d')
+    
+    # Order maturities correctly
+    maturities_order = ["Fed Rate"] + list(us_data.columns)
+    category_orders = {"Maturity": maturities_order}
+    
+    # Sort logically so the line connects properly
+    df_combined["Maturity"] = pd.Categorical(df_combined["Maturity"], categories=maturities_order, ordered=True)
+    df_combined = df_combined.sort_values(["Date", "Maturity"])
+    
+    # Stabilize Y-axis during animation
+    y_min = df_combined["Yield (%)"].min() - 0.5
+    y_max = df_combined["Yield (%)"].max() + 0.5
+    
+    fig = px.line(df_combined,
                  x="Maturity",
                  y="Yield (%)",
+                 animation_frame="Date_str",
                  text="Yield (%)",
                  markers=True,
-                 title="US Treasury Yield Curve")
+                 category_orders=category_orders,
+                 range_y=[y_min, y_max],
+                 title="US Treasury Yield Curve (Animated 10-Year History)")
+                 
     fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
     fig.update_layout(showlegend=False)
+    
+    # Speed up animation slightly
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 150
+        
+    # Set default to the last frame
+    if fig.frames:
+        last_frame = fig.frames[-1]
+        for trace_idx in range(min(len(fig.data), len(last_frame.data))):
+            fig.data[trace_idx].x = last_frame.data[trace_idx].x
+            fig.data[trace_idx].y = last_frame.data[trace_idx].y
+            if hasattr(last_frame.data[trace_idx], 'text'):
+                fig.data[trace_idx].text = last_frame.data[trace_idx].text
+        if fig.layout.sliders:
+            fig.layout.sliders[0].active = len(fig.frames) - 1
+            
     return fig
 
 
@@ -575,14 +654,10 @@ with col1:
     with st.container(border=True):
         st.markdown("#### Parameters")
         period_choice = st.pills("Period", 
-                                 period_dict.keys(),
+                                 period_offset_dict.keys(),
                                  default="1 Year")
-        period = period_dict[period_choice]
-        window_selection = st.pills(
-                "Window (for Volatility Tab)",
-                options=vol_window_dict.keys(),
-                default="21 Days (1m)")
-        window = vol_window_dict[window_selection]
+        period_offset = period_offset_dict[period_choice]
+
         equity_choice = st.multiselect("Equity", 
                                        ASSETS["Equity"].keys(), 
                                        default="Apple (AAPL)")
@@ -614,8 +689,17 @@ with col2:
                                             "Data"])
     
     with st.spinner("Processing data..."):
-        yfinance_data = fetch_yfinance_data(tickers, period)
-        # fred_data = fetch_fred_data(yfinance_data.index[0], SERIES)
+        # Fetch max data for selected tickers
+        tickers_tuple = tuple(tickers)
+        yfinance_data_max = fetch_yfinance_data(tickers_tuple)
+        
+        # Slice data based on selected period
+        if period_offset is not None:
+            start_date_str = (pd.Timestamp.today() - period_offset).strftime('%Y-%m-%d')
+            yfinance_data = yfinance_data_max.loc[start_date_str:]
+        else:
+            yfinance_data = yfinance_data_max
+            
         yfinance_fig = plot_yfinance_data(yfinance_data, tickers, logscale)
     
     with tab1:
@@ -626,10 +710,8 @@ with col2:
         st.plotly_chart(correlation_fig, use_container_width=True)
     
     with tab3:
-        vol_fig = plot_volatility(yfinance_data, window,logscale)
+        vol_fig = plot_volatility(yfinance_data)
         st.plotly_chart(vol_fig, use_container_width=True)
-        if window>len(yfinance_data):
-            st.warning("**Window is too large:** The selected rolling window can't be larger than the period. Please select a smaller window.", icon="⚠️")
 
         
     # with tab4:
@@ -649,7 +731,7 @@ with col2:
     
 
 st.write("---")
-st.subheader("Euro Area Yield Curve")
+st.subheader("Yield Curves")
 
 with st.spinner("Fetching ECB & US Treasury data..."):
     ecb_data = fetch_ecb_yield_curve()
@@ -658,17 +740,21 @@ with st.spinner("Fetching ECB & US Treasury data..."):
     us_treasury_data = fetch_us_treasury_yield_curve()
     fed_rate = fetch_fed_policy_rate()
 
-col1, col2 = st.columns(2)
-with col1:
-    ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
-    st.plotly_chart(ecb_bar_fig, use_container_width=True)
-    
-    st.write("---")
-    us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
-    st.plotly_chart(us_bar_fig, use_container_width=True)
+col_curve, col_govies = st.columns([3, 1])
 
-with col2:
-    st.markdown("#### EU 10Y Government Bond Yields")
+with col_curve:
+    tab_eu, tab_us = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States"])
+
+    with tab_eu:
+        ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
+        st.plotly_chart(ecb_bar_fig, use_container_width=True)
+
+    with tab_us:
+        us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
+        st.plotly_chart(us_bar_fig, use_container_width=True)
+
+with col_govies:
+    st.markdown("#### EU 10Y Govies")
     latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
     govies_df = latest_govies.reset_index()
     govies_df.columns = ["Country", "Yield (%)"]
