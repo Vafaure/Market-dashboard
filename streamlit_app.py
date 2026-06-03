@@ -5,7 +5,10 @@ import numpy as np
 import pandas as pd
 import requests
 import io
-
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+import tempfile
+import os
 
 st.set_page_config(layout="wide", page_title="Market dashboard")
 
@@ -583,6 +586,264 @@ def get_ticker_tape_html():
         return ""
 
 
+@st.cache_data(ttl=300)
+def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data):
+    class CustomPDF(FPDF):
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("helvetica", "I", 8)
+            self.set_text_color(128, 128, 128)
+            now_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+            self.cell(0, 10, f"Prepared by Valentin Fauré - Market Dashboard | Generated at {now_str} | Page {self.page_no()}", align="C")
+
+    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X"]
+    data = yf.download(tickers, period="1y", progress=False)["Close"].ffill()
+    
+    latest_vals = {}
+    deltas_30d = {}
+    deltas_1y = {}
+    
+    for t in tickers:
+        if t in data.columns:
+            s = data[t].dropna()
+            if not s.empty:
+                latest = s.iloc[-1]
+                latest_vals[t] = latest
+                
+                prev_1y = s.iloc[0]
+                deltas_1y[t] = (latest - prev_1y) / prev_1y * 100 if prev_1y != 0 else 0
+                
+                prev_30d = s.iloc[-21] if len(s) >= 21 else s.iloc[0]
+                deltas_30d[t] = (latest - prev_30d) / prev_30d * 100 if prev_30d != 0 else 0
+            else:
+                latest_vals[t] = 0.0
+                deltas_30d[t] = 0.0
+                deltas_1y[t] = 0.0
+        else:
+            latest_vals[t] = 0.0
+            deltas_30d[t] = 0.0
+            deltas_1y[t] = 0.0
+
+    # Dynamic Commentary
+    sp_30d_return = deltas_30d.get('^GSPC', 0)
+    sp_comment = f"Equities show {'positive' if sp_30d_return >= 0 else 'negative'} momentum, with the S&P 500 {'up' if sp_30d_return >= 0 else 'down'} {abs(sp_30d_return):.1f}% over the past 30 days."
+    
+    us_latest = us_data.dropna(how='all').iloc[-1]
+    y10 = us_latest.get('10 Yr', None)
+    y2 = us_latest.get('2 Yr', None)
+    
+    if pd.notna(y10) and pd.notna(y2):
+        if y10 < y2:
+            curve_comment = "The US Treasury yield curve remains inverted, often viewed as an economic warning sign."
+        else:
+            curve_comment = "The US Treasury yield curve is positively sloped, reflecting normalized conditions."
+    else:
+        curve_comment = ""
+
+    commentary = f"{sp_comment} {curve_comment}"
+
+    # US Yield Curve
+    plt.figure(figsize=(9, 3.2))
+    fed_latest = fed_rate_series.dropna().iloc[-1]
+    us_x = ["Fed Rate"] + list(us_latest.index)
+    us_y = [fed_latest] + list(us_latest.values)
+    
+    plt.plot(us_x, us_y, marker='o', color='#004b87', linewidth=2, markersize=6)
+    plt.fill_between(us_x, us_y, alpha=0.1, color='#004b87')
+    
+    us_y_clean = [y for y in us_y if pd.notna(y)]
+    if us_y_clean:
+        plt.ylim(min(us_y_clean) - 0.5, max(us_y_clean) + 0.8)
+        
+    for x_val, y_val in zip(us_x, us_y):
+        if pd.notna(y_val):
+            plt.annotate(f"{y_val:.2f}", (x_val, y_val), textcoords="offset points", xytext=(0,8), ha='center', fontsize=8, color='#004b87', fontweight='bold')
+            
+    plt.title("US Treasury Yield Curve", fontsize=12, fontweight='bold')
+    plt.ylabel("Yield (%)")
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_us:
+        plt.savefig(f_us.name, dpi=150)
+        us_img_path = f_us.name
+    plt.close()
+
+    # Euro Yield Curve
+    plt.figure(figsize=(9, 3.2))
+    ecb_latest = ecb_data.dropna(how='all').iloc[-1]
+    depo_latest = ecb_rate_series.dropna().iloc[-1]
+    ecb_x = ["Deposit"] + list(ecb_latest.index)
+    ecb_y = [depo_latest] + list(ecb_latest.values)
+    
+    plt.plot(ecb_x, ecb_y, marker='o', color='#003399', linewidth=2, markersize=6)
+    plt.fill_between(ecb_x, ecb_y, alpha=0.1, color='#003399')
+    
+    ecb_y_clean = [y for y in ecb_y if pd.notna(y)]
+    if ecb_y_clean:
+        plt.ylim(min(ecb_y_clean) - 0.5, max(ecb_y_clean) + 0.8)
+        
+    for x_val, y_val in zip(ecb_x, ecb_y):
+        if pd.notna(y_val):
+            plt.annotate(f"{y_val:.2f}", (x_val, y_val), textcoords="offset points", xytext=(0,8), ha='center', fontsize=8, color='#003399', fontweight='bold')
+
+    plt.title("Euro Area Yield Curve", fontsize=12, fontweight='bold')
+    plt.ylabel("Yield (%)")
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_ecb:
+        plt.savefig(f_ecb.name, dpi=150)
+        ecb_img_path = f_ecb.name
+    plt.close()
+
+    pdf = CustomPDF()
+    pdf.add_page()
+    
+    # Elegant Header
+    pdf.set_fill_color(140, 120, 81) # #8c7851
+    pdf.rect(0, 0, 210, 25, 'F')
+    
+    pdf.set_y(8)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("helvetica", "B", 18)
+    pdf.cell(0, 10, "Market Dashboard Recap", align="C")
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(30) # Fix title overlap
+
+    # Commentary
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(0, 8, "Market Insight", ln=True)
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_font("helvetica", "I", 10)
+    pdf.multi_cell(0, 5, commentary)
+    pdf.ln(2)
+
+    def format_val(val, is_currency=False):
+        prefix = "$" if is_currency else ""
+        return f"{prefix}{val:,.2f}"
+
+    def format_delta(delta):
+        return f"{'+' if delta >= 0 else ''}{delta:.2f}%"
+
+    def get_rgb_color(delta):
+        return (0, 150, 0) if delta >= 0 else (200, 0, 0)
+
+    # Tables side-by-side
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(100, 8, "Latest Market Overview", ln=False)
+    pdf.cell(90, 8, "Top Forex Pairs", ln=True)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(25, 8, "Asset", border="B")
+    pdf.cell(25, 8, "Price", border="B", align="R")
+    pdf.cell(20, 8, "30d", border="B", align="R")
+    pdf.cell(20, 8, "1Y", border="B", align="R")
+    
+    pdf.cell(10, 8, "", border=0) # Spacer
+    
+    pdf.cell(25, 8, "Pair", border="B")
+    pdf.cell(25, 8, "Price", border="B", align="R")
+    pdf.cell(20, 8, "30d", border="B", align="R")
+    pdf.cell(20, 8, "1Y", border="B", align="R", ln=True)
+    
+    pdf.set_font("helvetica", "", 10)
+    
+    assets_to_display = [
+        ("CAC 40", "^FCHI", False),
+        ("S&P 500", "^GSPC", False),
+        ("Brent Crude", "BZ=F", True),
+        ("Gold", "GC=F", True),
+        ("VIX", "^VIX", False)
+    ]
+    fx_pairs = [
+        ("EUR/USD", "EURUSD=X"),
+        ("GBP/USD", "GBPUSD=X"),
+        ("USD/JPY", "JPY=X"),
+        ("USD/CHF", "CHF=X"),
+        (None, None)
+    ]
+    
+    for (name, ticker, is_curr), (fx_name, fx_ticker) in zip(assets_to_display, fx_pairs):
+        val = latest_vals[ticker]
+        d30 = deltas_30d[ticker]
+        d1y = deltas_1y[ticker]
+        
+        # Left Table
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(25, 8, name, border="B")
+        pdf.cell(25, 8, format_val(val, is_curr), border="B", align="R")
+        
+        pdf.set_text_color(*get_rgb_color(d30))
+        pdf.cell(20, 8, format_delta(d30), border="B", align="R")
+        
+        pdf.set_text_color(*get_rgb_color(d1y))
+        pdf.cell(20, 8, format_delta(d1y), border="B", align="R")
+        
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(10, 8, "", border=0) # Spacer
+        
+        # Right Table
+        if fx_name:
+            fx_val = latest_vals[fx_ticker]
+            fd30 = deltas_30d[fx_ticker]
+            fd1y = deltas_1y[fx_ticker]
+            
+            pdf.cell(25, 8, fx_name, border="B")
+            format_str = f"{fx_val:,.4f}" if fx_name != "USD/JPY" else f"{fx_val:,.2f}"
+            pdf.cell(25, 8, format_str, border="B", align="R")
+            
+            pdf.set_text_color(*get_rgb_color(fd30))
+            pdf.cell(20, 8, format_delta(fd30), border="B", align="R")
+            
+            pdf.set_text_color(*get_rgb_color(fd1y))
+            pdf.cell(20, 8, format_delta(fd1y), border="B", align="R", ln=True)
+            pdf.set_text_color(0, 0, 0)
+        else:
+            pdf.cell(25, 8, "", border="B")
+            pdf.cell(25, 8, "", border="B", align="R")
+            pdf.cell(20, 8, "", border="B", align="R")
+            pdf.cell(20, 8, "", border="B", align="R", ln=True)
+
+    # Govies
+    pdf.ln(5)
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(0, 8, "EU 10Y Govies", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    
+    latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
+    govies_items = list(latest_govies.head(5).items())
+    
+    box_width = 190 / len(govies_items)
+    for country, yield_val in govies_items:
+        # FPDF helvetica doesn't support emojis, so we extract just the country code (e.g. "DE" from "🇩🇪 DE")
+        country_clean = str(country).split()[-1]
+        pdf.cell(box_width, 8, f"{country_clean}: {yield_val:.2f}%", border=1, align="C")
+    pdf.ln(8)
+
+    pdf.ln(5)
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(0, 8, "Yield Curves", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+    
+    pdf.image(us_img_path, x=20, w=170)
+    pdf.ln(2)
+    pdf.image(ecb_img_path, x=20, w=170)
+    
+    os.remove(us_img_path)
+    os.remove(ecb_img_path)
+    
+    return bytes(pdf.output())
+
+
 ##### CODE #####
 
 st.title("Market Dashboard")
@@ -684,6 +945,25 @@ with col1:
                 ''', unsafe_allow_html=True)
         else:
             st.write("No news available.")
+
+    with st.container(border=True):
+        st.markdown("#### Export Report")
+        
+        # We fetch the data and generate the PDF right away. 
+        # The caching ensures this is extremely fast after the first run.
+        us_treasury_data = fetch_us_treasury_yield_curve()
+        ecb_data = fetch_ecb_yield_curve()
+        fed_rate = fetch_fed_policy_rate()
+        ecb_rate_series = fetch_ecb_policy_rate()
+        govies_data = fetch_ecb_govies_10y()
+        
+        pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data)
+        
+        st.download_button("📄 Download PDF Recap", 
+                           data=pdf_bytes, 
+                           file_name="market_recap.pdf", 
+                           mime="application/pdf",
+                           use_container_width=True)
 
 with col2:
     tab1, tab2, tab3, tab5 = st.tabs(["Market Overview",
