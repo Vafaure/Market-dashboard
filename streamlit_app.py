@@ -151,6 +151,20 @@ ECB_MATURITIES = {
     "30Y": "SR_30Y"
 }
 
+FRED_US_YIELDS = {
+    "1M": "DGS1MO",
+    "3M": "DGS3MO",
+    "6M": "DGS6MO",
+    "1Y": "DGS1",
+    "2Y": "DGS2",
+    "3Y": "DGS3",
+    "5Y": "DGS5",
+    "7Y": "DGS7",
+    "10Y": "DGS10",
+    "20Y": "DGS20",
+    "30Y": "DGS30"
+}
+
 ECB_GOVIES_10Y = {
     "🇩🇪 Germany": "DE",
     "🇫🇷 France": "FR",
@@ -326,7 +340,7 @@ def plot_volatility(yfinance_data, window,logscale):
 
 @st.cache_data(ttl=3600)
 def fetch_ecb_yield_curve():
-    start = (pd.Timestamp.today() - pd.DateOffset(months=6)).strftime("%Y-%m-%d")
+    start = (pd.Timestamp.today() - pd.DateOffset(years=10)).strftime("%Y-%m-%d")
     maturities_str = "+".join(ECB_MATURITIES.values())
     url = (f"https://data-api.ecb.europa.eu/service/data/YC/"
            f"B.U2.EUR.4F.G_N_A.SV_C_YM.{maturities_str}"
@@ -345,21 +359,55 @@ def fetch_ecb_yield_curve():
     return pivot
 
 
-def plot_ecb_yield_curve_bar(ecb_data, ecb_rate):
-    latest = ecb_data.dropna().iloc[-1]
-    df_plot = latest.reset_index()
-    df_plot.columns = ["Maturity", "Yield (%)"]
+def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
+    # Resample to Weekly to keep animation fluid and lightweight
+    ecb_data_w = ecb_data.resample('W-FRI').last().dropna(how='all')
+    ecb_rate_w = ecb_rate_series.resample('W-FRI').last().dropna()
     
-    deposit_row = pd.DataFrame([{"Maturity": "Deposit", "Yield (%)": ecb_rate}])
-    df_plot = pd.concat([deposit_row, df_plot], ignore_index=True)
-    fig = px.line(df_plot,
+    # Melt ECB Data
+    df_melted = ecb_data_w.reset_index().melt(id_vars="TIME_PERIOD", var_name="Maturity", value_name="Yield (%)")
+    df_melted = df_melted.rename(columns={"TIME_PERIOD": "Date"})
+    
+    # Create Deposit Rate Dataframe
+    dep_df = pd.DataFrame({
+        "Date": ecb_rate_w.index,
+        "Maturity": "Deposit",
+        "Yield (%)": ecb_rate_w.values
+    })
+    
+    # Combine
+    df_combined = pd.concat([dep_df, df_melted], ignore_index=True)
+    df_combined["Date_str"] = df_combined["Date"].dt.strftime('%Y-%m-%d')
+    
+    # Order maturities correctly
+    maturities_order = ["Deposit"] + list(ecb_data.columns)
+    category_orders = {"Maturity": maturities_order}
+    
+    # Sort logically (not alphabetically) so the line connects properly
+    df_combined["Maturity"] = pd.Categorical(df_combined["Maturity"], categories=maturities_order, ordered=True)
+    df_combined = df_combined.sort_values(["Date", "Maturity"])
+    
+    # Stabilize Y-axis during animation
+    y_min = df_combined["Yield (%)"].min() - 0.5
+    y_max = df_combined["Yield (%)"].max() + 0.5
+    
+    fig = px.line(df_combined,
                  x="Maturity",
                  y="Yield (%)",
+                 animation_frame="Date_str",
                  text="Yield (%)",
                  markers=True,
-                 title="Euro Area Yield Curve (AAA-rated sovereign bonds)")
+                 category_orders=category_orders,
+                 range_y=[y_min, y_max],
+                 title="Euro Area Yield Curve (Animated 10-Year History)")
+                 
     fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
     fig.update_layout(showlegend=False)
+    
+    # Speed up animation slightly
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 150
+        
     return fig
 
 
@@ -397,12 +445,66 @@ def fetch_ecb_govies_10y():
 
 @st.cache_data(ttl=3600)
 def fetch_ecb_policy_rate():
-    start = (pd.Timestamp.today() - pd.DateOffset(months=1)).strftime("%Y-%m-%d")
+    start = (pd.Timestamp.today() - pd.DateOffset(years=10)).strftime("%Y-%m-%d")
     url = f"https://data-api.ecb.europa.eu/service/data/FM/D.U2.EUR.4F.KR.DFR.LEV?format=csvdata&startPeriod={start}"
     resp = requests.get(url, timeout=10)
     resp.raise_for_status()
     df = pd.read_csv(io.StringIO(resp.text))
-    return df["OBS_VALUE"].iloc[-1]
+    df["TIME_PERIOD"] = pd.to_datetime(df["TIME_PERIOD"])
+    return df.set_index("TIME_PERIOD")["OBS_VALUE"]
+
+
+@st.cache_data(ttl=3600)
+def fetch_us_treasury_yield_curve():
+    def get_data(date_obj):
+        ym = date_obj.strftime("%Y%m")
+        url = f"https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/all/{ym}?type=daily_treasury_yield_curve&field_tdr_date_value_month={ym}&page&_format=csv"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if resp.status_code == 200:
+            df = pd.read_csv(io.StringIO(resp.text))
+            if not df.empty:
+                return df
+        return None
+
+    today = pd.Timestamp.today()
+    df = get_data(today)
+    if df is None:
+        df = get_data(today - pd.DateOffset(months=1))
+        
+    maturities = ['1 Mo', '3 Mo', '6 Mo', '1 Yr', '2 Yr', '3 Yr', '5 Yr', '7 Yr', '10 Yr', '20 Yr', '30 Yr']
+    latest = df.iloc[0][maturities]
+    df_plot = latest.reset_index()
+    df_plot.columns = ["Maturity", "Yield (%)"]
+    df_plot["Yield (%)"] = pd.to_numeric(df_plot["Yield (%)"], errors="coerce")
+    return df_plot
+
+
+@st.cache_data(ttl=3600)
+def fetch_fed_policy_rate():
+    url = "https://markets.newyorkfed.org/api/rates/all/latest.json"
+    resp = requests.get(url, timeout=10)
+    if resp.status_code == 200:
+        data = resp.json()
+        for rate in data.get("refRates", []):
+            if rate.get("type") == "EFFR":
+                return rate.get("percentRate")
+    return None
+
+
+def plot_us_treasury_yield_curve(df_plot, fed_rate):
+    if fed_rate is not None:
+        fed_row = pd.DataFrame([{"Maturity": "Fed Rate", "Yield (%)": fed_rate}])
+        df_plot = pd.concat([fed_row, df_plot], ignore_index=True)
+        
+    fig = px.line(df_plot,
+                 x="Maturity",
+                 y="Yield (%)",
+                 text="Yield (%)",
+                 markers=True,
+                 title="US Treasury Yield Curve")
+    fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
+    fig.update_layout(showlegend=False)
+    return fig
 
 
 
@@ -549,15 +651,21 @@ with col2:
 st.write("---")
 st.subheader("Euro Area Yield Curve")
 
-with st.spinner("Fetching ECB data..."):
+with st.spinner("Fetching ECB & US Treasury data..."):
     ecb_data = fetch_ecb_yield_curve()
     govies_data = fetch_ecb_govies_10y()
-    ecb_rate = fetch_ecb_policy_rate()
+    ecb_rate_series = fetch_ecb_policy_rate()
+    us_treasury_data = fetch_us_treasury_yield_curve()
+    fed_rate = fetch_fed_policy_rate()
 
 col1, col2 = st.columns(2)
 with col1:
-    ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate)
+    ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
     st.plotly_chart(ecb_bar_fig, use_container_width=True)
+    
+    st.write("---")
+    us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
+    st.plotly_chart(us_bar_fig, use_container_width=True)
 
 with col2:
     st.markdown("#### EU 10Y Government Bond Yields")
