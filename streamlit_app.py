@@ -489,6 +489,79 @@ def fetch_fed_policy_rate():
     return pd.Series(dtype=float)
 
 
+@st.cache_data(ttl=3600)
+def fetch_japan_yield_curve():
+    url = "https://www.mof.go.jp/english/jgbs/reference/interest_rate/historical/jgbcme_all.csv"
+    try:
+        resp = requests.get(url, verify=False, timeout=10)
+        df = pd.read_csv(io.StringIO(resp.content.decode('shift_jis', errors='ignore')), skiprows=1)
+        df.rename(columns={"Date": "TIME_PERIOD"}, inplace=True)
+        df = df.dropna(subset=["TIME_PERIOD"])
+        df["TIME_PERIOD"] = pd.to_datetime(df["TIME_PERIOD"], errors='coerce')
+        df = df.dropna(subset=["TIME_PERIOD"])
+        df.set_index("TIME_PERIOD", inplace=True)
+        yield_cols = [c for c in df.columns if c.endswith('Y')]
+        df = df[yield_cols]
+        for c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce')
+        return df.dropna(how='all')
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def plot_japan_yield_curve(japan_data):
+    if japan_data.empty:
+        return px.line(title="Data not available")
+        
+    ten_years_ago = pd.Timestamp.today() - pd.DateOffset(years=10)
+    japan_data_10y = japan_data[japan_data.index >= ten_years_ago]
+        
+    japan_data_w = japan_data_10y.resample('W-FRI').last().dropna(how='all')
+    japan_data_w.index.name = "Date"
+    
+    df_melted = japan_data_w.reset_index().melt(id_vars="Date", var_name="Maturity", value_name="Yield (%)")
+    df_melted["Date_str"] = df_melted["Date"].dt.strftime('%Y-%m-%d')
+    df_combined = df_melted.dropna(subset=["Yield (%)"])
+    
+    maturities_order = list(japan_data.columns)
+    category_orders = {"Maturity": maturities_order}
+    
+    df_combined["Maturity"] = pd.Categorical(df_combined["Maturity"], categories=maturities_order, ordered=True)
+    df_combined = df_combined.sort_values(["Date", "Maturity"])
+    
+    y_min = df_combined["Yield (%)"].min() - 0.5
+    y_max = df_combined["Yield (%)"].max() + 0.5
+    
+    fig = px.line(df_combined,
+                 x="Maturity",
+                 y="Yield (%)",
+                 animation_frame="Date_str",
+                 text="Yield (%)",
+                 markers=True,
+                 category_orders=category_orders,
+                 range_y=[y_min, y_max],
+                 title="Japan Yield Curve (Animated 10-Year History)",
+                 template="plotly_white")
+                 
+    fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
+    fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    
+    if fig.layout.updatemenus:
+        fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 150
+        
+    if fig.frames:
+        last_frame = fig.frames[-1]
+        for trace_idx in range(min(len(fig.data), len(last_frame.data))):
+            fig.data[trace_idx].x = last_frame.data[trace_idx].x
+            fig.data[trace_idx].y = last_frame.data[trace_idx].y
+            if hasattr(last_frame.data[trace_idx], 'text'):
+                fig.data[trace_idx].text = last_frame.data[trace_idx].text
+        if fig.layout.sliders:
+            fig.layout.sliders[0].active = len(fig.frames) - 1
+            
+    return fig
+
+
 def plot_us_treasury_yield_curve(us_data, fed_rate_series):
     if us_data.empty or fed_rate_series.empty:
         return px.line(title="Data not available")
@@ -587,8 +660,21 @@ def get_ticker_tape_html():
 
 
 @st.cache_data(ttl=300)
-def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data):
+def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data):
     class CustomPDF(FPDF):
+        def header(self):
+            # Elegant Header
+            self.set_fill_color(140, 120, 81) # #8c7851
+            self.rect(0, 0, 210, 25, 'F')
+            
+            self.set_y(8)
+            self.set_text_color(255, 255, 255)
+            self.set_font("helvetica", "B", 18)
+            self.cell(0, 10, "Market Dashboard Recap", align="C")
+            
+            self.set_text_color(0, 0, 0)
+            self.set_y(30) # Fix title overlap
+
         def footer(self):
             self.set_y(-15)
             self.set_font("helvetica", "I", 8)
@@ -697,20 +783,35 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
         ecb_img_path = f_ecb.name
     plt.close()
 
+    # Japan Yield Curve
+    plt.figure(figsize=(9, 3.2))
+    japan_latest = japan_data.dropna(how='all').iloc[-1]
+    jp_x = list(japan_latest.index)
+    jp_y = list(japan_latest.values)
+    
+    plt.plot(jp_x, jp_y, marker='o', color='#cc0000', linewidth=2, markersize=6)
+    plt.fill_between(jp_x, jp_y, alpha=0.1, color='#cc0000')
+    
+    jp_y_clean = [y for y in jp_y if pd.notna(y)]
+    if jp_y_clean:
+        plt.ylim(min(jp_y_clean) - 0.5, max(jp_y_clean) + 0.8)
+        
+    for x_val, y_val in zip(jp_x, jp_y):
+        if pd.notna(y_val):
+            plt.annotate(f"{y_val:.2f}", (x_val, y_val), textcoords="offset points", xytext=(0,8), ha='center', fontsize=8, color='#cc0000', fontweight='bold')
+            
+    plt.title("Japan Government Bond Yield Curve", fontsize=12, fontweight='bold')
+    plt.ylabel("Yield (%)")
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_jp:
+        plt.savefig(f_jp.name, dpi=150)
+        jp_img_path = f_jp.name
+    plt.close()
+
     pdf = CustomPDF()
     pdf.add_page()
-    
-    # Elegant Header
-    pdf.set_fill_color(140, 120, 81) # #8c7851
-    pdf.rect(0, 0, 210, 25, 'F')
-    
-    pdf.set_y(8)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("helvetica", "B", 18)
-    pdf.cell(0, 10, "Market Dashboard Recap", align="C")
-    
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_y(30) # Fix title overlap
 
     # Commentary
     pdf.set_font("helvetica", "B", 12)
@@ -813,18 +914,25 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.ln(5)
     pdf.set_font("helvetica", "B", 12)
     pdf.set_text_color(140, 120, 81)
-    pdf.cell(0, 8, "EU 10Y Govies", ln=True)
+    pdf.cell(0, 8, "Global 10Y Benchmarks", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("helvetica", "", 10)
     
-    latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
-    govies_items = list(latest_govies.head(5).items())
+    latest_eu = govies_data.dropna().iloc[-1]
+    global_govies = {
+        "US": us_data['10 Yr'].dropna().iloc[-1] if not us_data.empty else None,
+        "DE": latest_eu.get("🇩🇪 Germany", None),
+        "JP": japan_data['10Y'].dropna().iloc[-1] if not japan_data.empty else None,
+        "FR": latest_eu.get("🇫🇷 France", None),
+        "IT": latest_eu.get("🇮🇹 Italy", None),
+    }
     
-    box_width = 190 / len(govies_items)
-    for country, yield_val in govies_items:
-        # FPDF helvetica doesn't support emojis, so we extract just the country code (e.g. "DE" from "🇩🇪 DE")
-        country_clean = str(country).split()[-1]
-        pdf.cell(box_width, 8, f"{country_clean}: {yield_val:.2f}%", border=1, align="C")
+    govies_items = [(k, v) for k, v in global_govies.items() if v is not None]
+    
+    if govies_items:
+        box_width = 190 / len(govies_items)
+        for country, yield_val in govies_items:
+            pdf.cell(box_width, 8, f"{country}: {yield_val:.2f}%", border=1, align="C")
     pdf.ln(8)
 
     pdf.ln(5)
@@ -838,8 +946,18 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.ln(2)
     pdf.image(ecb_img_path, x=20, w=170)
     
+    # Japan Curve - put it on a new page to avoid overflow
+    pdf.add_page()
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(0, 8, "Yield Curves (Continued)", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+    pdf.image(jp_img_path, x=20, w=170)
+    
     os.remove(us_img_path)
     os.remove(ecb_img_path)
+    os.remove(jp_img_path)
     
     return bytes(pdf.output())
 
@@ -956,8 +1074,9 @@ with col1:
         fed_rate = fetch_fed_policy_rate()
         ecb_rate_series = fetch_ecb_policy_rate()
         govies_data = fetch_ecb_govies_10y()
+        japan_data = fetch_japan_yield_curve()
         
-        pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data)
+        pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data)
         
         st.download_button("📄 Download PDF Recap", 
                            data=pdf_bytes, 
@@ -1006,29 +1125,43 @@ with col2:
 
     st.write("---")
 
-    with st.spinner("Fetching ECB & US Treasury data..."):
+    with st.spinner("Fetching ECB, US Treasury & JGB data..."):
         ecb_data = fetch_ecb_yield_curve()
         govies_data = fetch_ecb_govies_10y()
         ecb_rate_series = fetch_ecb_policy_rate()
         us_treasury_data = fetch_us_treasury_yield_curve()
         fed_rate = fetch_fed_policy_rate()
+        japan_data = fetch_japan_yield_curve()
 
     st.subheader("Yield Curves")
     col_curve, col_govies = st.columns([2.5, 1])
     with col_curve:
-        tab_eu, tab_us = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States"])
+        tab_eu, tab_us, tab_jp = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States", "🇯🇵 Japan"])
         with tab_eu:
             ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
             st.plotly_chart(ecb_bar_fig, use_container_width=True)
         with tab_us:
             us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
             st.plotly_chart(us_bar_fig, use_container_width=True)
+        with tab_jp:
+            jp_bar_fig = plot_japan_yield_curve(japan_data)
+            st.plotly_chart(jp_bar_fig, use_container_width=True)
     with col_govies:
-        st.markdown("#### EU 10Y Govies")
-        latest_govies = govies_data.dropna().iloc[-1].sort_values(ascending=True)
-        govies_df = latest_govies.reset_index()
-        govies_df.columns = ["Country", "Yield (%)"]
-        govies_df["Yield (%)"] = govies_df["Yield (%)"].map("{:.2f} %".format)
+        st.markdown("#### Global 10Y Yields")
+        
+        # We already have DE, FR, IT, ES, NL from ECB
+        latest_eu = govies_data.dropna().iloc[-1]
+        global_govies = {
+            "🇺🇸 US": us_treasury_data['10 Yr'].dropna().iloc[-1] if not us_treasury_data.empty else None,
+            "🇩🇪 DE": latest_eu.get("🇩🇪 Germany", None),
+            "🇯🇵 JP": japan_data['10Y'].dropna().iloc[-1] if not japan_data.empty else None,
+            "🇫🇷 FR": latest_eu.get("🇫🇷 France", None),
+            "🇮🇹 IT": latest_eu.get("🇮🇹 Italy", None),
+        }
+        
+        # Filter out Nones and format
+        govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in global_govies.items() if v is not None]
+        govies_df = pd.DataFrame(govies_list)
         
         # Attempt to style header via Pandas Styler
         styled_df = govies_df.style.set_table_styles([{
