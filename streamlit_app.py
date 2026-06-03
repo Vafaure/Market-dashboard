@@ -646,7 +646,13 @@ with col1:
         news = fetch_top_news()
         if news:
             for n in news:
-                st.markdown(f"• [{n['title']}]({n['url']})")
+                st.markdown(f'''
+                    <a href="{n['url']}" target="_blank" style="text-decoration: none; color: inherit;">
+                        <div style="padding: 12px; margin-bottom: 12px; border-radius: 8px; background-color: rgba(140, 120, 81, 0.05); border-left: 4px solid #8c7851; transition: background-color 0.2s, transform 0.1s;" onmouseover="this.style.backgroundColor='rgba(140, 120, 81, 0.1)'; this.style.transform='translateX(2px)';" onmouseout="this.style.backgroundColor='rgba(140, 120, 81, 0.05)'; this.style.transform='translateX(0)';">
+                            <span style="font-size: 0.9em; font-weight: 500; color: #1a1a1a; line-height: 1.4; display: block;">{n['title']}</span>
+                        </div>
+                    </a>
+                ''', unsafe_allow_html=True)
         else:
             st.write("No news available.")
 
