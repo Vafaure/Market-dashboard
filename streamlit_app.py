@@ -2,7 +2,6 @@ import yfinance as yf
 import streamlit as st
 import plotly.express as px
 import numpy as np
-# import pandas_datareader.data as web
 import pandas as pd
 import requests
 import io
@@ -112,36 +111,6 @@ ASSETS = {
 }
 
 
-# SERIES = {
-#     "US_Yields": {
-#         "US 1M": "DGS1MO",
-#         "US 3M": "DGS3MO",
-#         "US 6M": "DGS6MO",
-#         "US 1Y": "DGS1",
-#         "US 2Y": "DGS2",
-#         "US 3Y": "DGS3",
-#         "US 5Y": "DGS5",
-#         "US 7Y": "DGS7",
-#         "US 10Y": "DGS10",
-#         "US 20Y": "DGS20",
-#         "US 30Y": "DGS30"
-#     },
-#     "Yields_10Y_OECD": {
-#         "Ireland 10Y": "IRLTLT01USM156N",
-#         "Italy 10Y": "IRLTLT01ITM156N",
-#         "Spain 10Y": "IRLTLT01ESM156N",
-#         "Germany 10Y": "IRLTLT01DEM156N",
-#         "United Kingdom 10Y": "IRLTLT01GBM156N",
-#         "Portugal 10Y": "IRLTLT01PTM156N",
-#         "France 10Y": "IRLTLT01FRM156N",
-#         "Japan 10Y": "IRLTLT01JPM156N",
-#         "Greece 10Y": "IRLTLT01GRM156N"
-#     },
-#     "Macro_Indicators": {
-#         "Real GDP": "GDPC1",
-#         "CPI Inflation": "CPIAUCSL"
-#     }
-# }
 
 ECB_MATURITIES = {
     "3M": "SR_3M",
@@ -309,84 +278,6 @@ def plot_volatility(yfinance_data):
     return fig
 
 
-# def fetch_fred_data(start, SERIES):
-#     all_tickers = []
-#     for category in SERIES.values():
-#         all_tickers.extend(category.values())
-#     fred_data = web.DataReader(all_tickers, "fred", start=start).ffill()
-#     rename_map = {}
-#     for category in SERIES.values():
-#         for name, ticker in category.items():
-#             rename_map[ticker] = name
-#     fred_data = fred_data.rename(columns=rename_map)
-#     return fred_data
-
-
-# def plot_us_maturities_bar(fred_data):
-#     selected_columns = list(SERIES["US_Yields"].keys())
-#     latest_data = fred_data[selected_columns].iloc[-1]
-#     df_plot = latest_data.reset_index()
-#     df_plot.columns = ['Maturities', 'Yield (%)']
-#     fig = px.bar(df_plot,
-#                  x='Maturities',
-#                  y='Yield (%)',
-#                  text_auto='.2f',
-#                  title="US Yields over maturities")
-#     fig.update_layout(showlegend=False)
-#     return fig
-
-# def plot_oecd_10y_bar(fred_data):
-#     selected_columns = list(SERIES["Yields_10Y_OECD"].keys())
-#     latest_data = fred_data[selected_columns].iloc[-1].sort_values(ascending=True)
-#     df_plot = latest_data.reset_index()
-#     df_plot.columns = ['Countries', 'Yield (%)']
-#     fig = px.bar(df_plot,
-#                  x='Countries',
-#                  y='Yield (%)',
-#                  text_auto='.2f',
-#                  title="OECD 10Y Yields")
-#     fig.update_layout(showlegend=False)
-#     return fig
-
-# def plot_us_yields_line(fred_data):
-#     selected_columns = list(SERIES["US_Yields"].keys())
-#     data = fred_data[selected_columns]
-#     fig = px.line(data,
-#                   x=data.index,
-#                   y=data.columns,
-#                   title="US Yields over time")
-#     fig.update_layout(xaxis_title="Date",
-#                       yaxis_title="Yield (%)")
-#     return fig
-
-# def plot_oecd_10y_line(fred_data):
-#     selected_columns = list(SERIES["Yields_10Y_OECD"].keys())
-#     data = fred_data[selected_columns]
-#     fig = px.line(data,
-#                   x=data.index,
-#                   y=data.columns,
-#                   title="OECD 10Y Yields over time")
-#     fig.update_layout(xaxis_title="Date",
-#                       yaxis_title="Yield (%)")
-#     return fig
-
-# def compute_macro_regime(fred_data):
-#     gdp_yoy = fred_data["Real GDP"].pct_change(12)
-#     cpi_yoy = fred_data["CPI Inflation"].pct_change(12)
-#     gdp_trend = np.sign(gdp_yoy.diff())
-#     gdp_trend = gdp_trend.replace(0,np.nan).ffill()
-#     cpi_trend = np.sign(cpi_yoy.diff())
-#     cpi_trend = cpi_trend.replace(0,np.nan).ffill()
-#     regimes = pd.DataFrame({"gdp_yoy":gdp_yoy,"cpi_yoy":cpi_yoy,"gdp_trend":gdp_trend,"cpi_trend":cpi_trend})
-#     growth_label=regimes["gdp_trend"].map({1.0:"Rising Growth",-1.0:"Falling Growth"})
-#     inflation_label=regimes["cpi_trend"].map({1.0:"Rising Inflation",-1.0:"Falling Inflation"})
-#     regimes["regime"]=growth_label + "+" + inflation_label
-#     return regimes
-
-# def compute_regime_based_stats(returns,regimes):
-#     df = returns.join(regimes["regime"])
-#     avg_return = (df.groupby("regime")[returns.columns].mean()*12)*100
-#     return avg_return
 
 
 @st.cache_data(ttl=3600)
@@ -796,15 +687,6 @@ with col2:
         st.plotly_chart(vol_fig, use_container_width=True)
 
         
-    # with tab4:
-    #     regimes = compute_macro_regime(fred_data)
-    #     returns = yfinance_data.pct_change().dropna()
-    #     avg_return=compute_regime_based_stats(returns,regimes)
-    #     st.write("Average return (%)")
-    #     st.table(avg_return)
-    #     if avg_return.empty:
-    #         st.warning("**Period too short:** The selected time range is not sufficient to compute macro regimes. Please select a longer period (at least 1 year) to see regime-based statistics.", icon="⚠️")
-
     with tab5:
         st.dataframe(yfinance_data)
     
