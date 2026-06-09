@@ -369,7 +369,6 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
-                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
@@ -541,7 +540,6 @@ def plot_japan_yield_curve(japan_data):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
-                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
@@ -614,7 +612,6 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
     y_max = df_combined["Yield (%)"].max() + 0.5
     
     fig = px.line(df_combined,
-                 render_mode="webgl",
                  x="Maturity",
                  y="Yield (%)",
                  animation_frame="Date_str",
