@@ -1,6 +1,7 @@
 import yfinance as yf
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 import pandas as pd
 import requests
@@ -12,6 +13,44 @@ import os
 import concurrent.futures
 
 st.set_page_config(layout="wide", page_title="Market dashboard")
+
+# Session State Initialization and Query Parameter Handling
+TAPE_TICKERS_MAP = {
+    "^GSPC": ("Index", "S&P 500 (^GSPC)"),
+    "^FCHI": ("Index", "CAC 40 (^FCHI)"),
+    "^VIX": ("Index", "VIX (^VIX)"),
+    "EURUSD=X": ("Forex", "EUR/USD (EURUSD=X)"),
+    "GC=F": ("Commodity", "Gold (GC=F)"),
+    "BZ=F": ("Commodity", "Crude Oil Brent (BZ=F)")
+}
+
+if "equity_sel" not in st.session_state:
+    st.session_state["equity_sel"] = ["Apple (AAPL)"]
+if "commodity_sel" not in st.session_state:
+    st.session_state["commodity_sel"] = ["Crude Oil WTI (CL=F)", "Gold (GC=F)"]
+if "index_sel" not in st.session_state:
+    st.session_state["index_sel"] = ["S&P 500 (^GSPC)"]
+if "forex_sel" not in st.session_state:
+    st.session_state["forex_sel"] = []
+
+select_ticker_param = st.query_params.get("select_ticker")
+if select_ticker_param:
+    st.query_params.clear()
+    if select_ticker_param in TAPE_TICKERS_MAP:
+        category, full_name = TAPE_TICKERS_MAP[select_ticker_param]
+        st.session_state["equity_sel"] = []
+        st.session_state["commodity_sel"] = []
+        st.session_state["index_sel"] = []
+        st.session_state["forex_sel"] = []
+        
+        if category == "Equity":
+            st.session_state["equity_sel"] = [full_name]
+        elif category == "Commodity":
+            st.session_state["commodity_sel"] = [full_name]
+        elif category == "Index":
+            st.session_state["index_sel"] = [full_name]
+        elif category == "Forex":
+            st.session_state["forex_sel"] = [full_name]
 
 # Force full width, custom font, and sleek tabs
 st.markdown(
@@ -386,14 +425,69 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
     if fig.layout.updatemenus:
         fig.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = 150
         
-    # Set default to the last frame
     if fig.frames:
+        for frame in fig.frames:
+            frame_date_str = frame.name
+            frame_date = pd.to_datetime(frame_date_str)
+            
+            is_inverted = False
+            spread_val = 0.0
+            if frame_date in ecb_data_w.index:
+                y10 = ecb_data_w.loc[frame_date, '10Y']
+                y2 = ecb_data_w.loc[frame_date, '2Y']
+                if pd.notna(y10) and pd.notna(y2):
+                    spread_val = y10 - y2
+                    is_inverted = spread_val < 0
+            
+            color = "#ff2b2b" if is_inverted else "#00c04b"
+            status_text = f"Courbe Inversée (Spread 10Y-2Y : {spread_val:+.2f}%)" if is_inverted else f"Courbe Normale (Spread 10Y-2Y : {spread_val:+.2f}%)"
+            
+            frame.data[0].update(line=dict(color=color))
+            
+            text_trace = go.Scatter(
+                x=["5Y"],
+                y=[y_max - 0.3],
+                text=[status_text],
+                mode="text",
+                textfont=dict(color="#31333f", size=14, family="Inter, sans-serif"),
+                showlegend=False
+            )
+            frame.data = (frame.data[0], text_trace)
+            
         last_frame = fig.frames[-1]
+        last_frame_date_str = last_frame.name
+        last_frame_date = pd.to_datetime(last_frame_date_str)
+        
+        last_inverted = False
+        last_spread = 0.0
+        if last_frame_date in ecb_data_w.index:
+            y10 = ecb_data_w.loc[last_frame_date, '10Y']
+            y2 = ecb_data_w.loc[last_frame_date, '2Y']
+            if pd.notna(y10) and pd.notna(y2):
+                last_spread = y10 - y2
+                last_inverted = last_spread < 0
+        
+        initial_color = "#ff2b2b" if last_inverted else "#00c04b"
+        initial_status = f"Courbe Inversée (Spread 10Y-2Y : {last_spread:+.2f}%)" if last_inverted else f"Courbe Normale (Spread 10Y-2Y : {last_spread:+.2f}%)"
+        
         for trace_idx in range(min(len(fig.data), len(last_frame.data))):
             fig.data[trace_idx].x = last_frame.data[trace_idx].x
             fig.data[trace_idx].y = last_frame.data[trace_idx].y
             if hasattr(last_frame.data[trace_idx], 'text'):
                 fig.data[trace_idx].text = last_frame.data[trace_idx].text
+            fig.data[trace_idx].update(line=dict(color=initial_color))
+            
+        fig.add_trace(go.Scatter(
+            x=["5Y"],
+            y=[y_max - 0.3],
+            text=[initial_status],
+            mode="text",
+            textfont=dict(color="#31333f", size=14, family="Inter, sans-serif"),
+            showlegend=False
+        ))
+        
+        fig.update_layout(title="Euro Area Yield Curve (Animated 10-Year History)")
+        
         if fig.layout.sliders:
             fig.layout.sliders[0].active = len(fig.frames) - 1
 
@@ -631,12 +725,68 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
         
     # Set default to the last frame
     if fig.frames:
+        for frame in fig.frames:
+            frame_date_str = frame.name
+            frame_date = pd.to_datetime(frame_date_str)
+            
+            is_inverted = False
+            spread_val = 0.0
+            if frame_date in us_data_w.index:
+                y10 = us_data_w.loc[frame_date, '10 Yr']
+                y2 = us_data_w.loc[frame_date, '2 Yr']
+                if pd.notna(y10) and pd.notna(y2):
+                    spread_val = y10 - y2
+                    is_inverted = spread_val < 0
+            
+            color = "#ff2b2b" if is_inverted else "#00c04b"
+            status_text = f"Courbe Inversée (Spread 10Y-2Y : {spread_val:+.2f}%)" if is_inverted else f"Courbe Normale (Spread 10Y-2Y : {spread_val:+.2f}%)"
+            
+            frame.data[0].update(line=dict(color=color))
+            
+            text_trace = go.Scatter(
+                x=["5 Yr"],
+                y=[y_max - 0.3],
+                text=[status_text],
+                mode="text",
+                textfont=dict(color="#31333f", size=14, family="Inter, sans-serif"),
+                showlegend=False
+            )
+            frame.data = (frame.data[0], text_trace)
+            
         last_frame = fig.frames[-1]
+        last_frame_date_str = last_frame.name
+        last_frame_date = pd.to_datetime(last_frame_date_str)
+        
+        last_inverted = False
+        last_spread = 0.0
+        if last_frame_date in us_data_w.index:
+            y10 = us_data_w.loc[last_frame_date, '10 Yr']
+            y2 = us_data_w.loc[last_frame_date, '2 Yr']
+            if pd.notna(y10) and pd.notna(y2):
+                last_spread = y10 - y2
+                last_inverted = last_spread < 0
+        
+        initial_color = "#ff2b2b" if last_inverted else "#00c04b"
+        initial_status = f"Courbe Inversée (Spread 10Y-2Y : {last_spread:+.2f}%)" if last_inverted else f"Courbe Normale (Spread 10Y-2Y : {last_spread:+.2f}%)"
+        
         for trace_idx in range(min(len(fig.data), len(last_frame.data))):
             fig.data[trace_idx].x = last_frame.data[trace_idx].x
             fig.data[trace_idx].y = last_frame.data[trace_idx].y
             if hasattr(last_frame.data[trace_idx], 'text'):
                 fig.data[trace_idx].text = last_frame.data[trace_idx].text
+            fig.data[trace_idx].update(line=dict(color=initial_color))
+            
+        fig.add_trace(go.Scatter(
+            x=["5 Yr"],
+            y=[y_max - 0.3],
+            text=[initial_status],
+            mode="text",
+            textfont=dict(color="#31333f", size=14, family="Inter, sans-serif"),
+            showlegend=False
+        ))
+        
+        fig.update_layout(title="US Treasury Yield Curve (Animated 10-Year History)")
+        
         if fig.layout.sliders:
             fig.layout.sliders[0].active = len(fig.frames) - 1
             
@@ -660,7 +810,7 @@ def get_ticker_tape_html():
                     pct_change = (latest - prev) / prev * 100
                     color = "#00c04b" if pct_change >= 0 else "#ff2b2b"
                     arrow = "▲" if pct_change >= 0 else "▼"
-                    items.append(f"<span style='margin-right: 40px; font-family: sans-serif;'><b>{name}</b> {latest:.2f} <span style='color: {color};'>{arrow} {abs(pct_change):.2f}%</span></span>")
+                    items.append(f"<a href='/?select_ticker={ticker}' target='_self' style='text-decoration: none; color: inherit; margin-right: 40px; font-family: sans-serif; display: inline-block;'><b>{name}</b> {latest:.2f} <span style='color: {color};'>{arrow} {abs(pct_change):.2f}%</span></a>")
         return " ".join(items)
     except:
         return ""
@@ -1004,12 +1154,24 @@ if tape_content:
             flex-shrink: 0;
             font-size: 16px;
         }}
+        /* Hover to pause */
+        .ticker-wrap:hover .ticker-content {{
+            animation-play-state: paused;
+        }}
+        .ticker-content a {{
+            transition: color 0.2s, opacity 0.2s;
+        }}
+        .ticker-content a:hover {{
+            opacity: 0.8;
+            color: #8c7851 !important;
+            text-decoration: underline !important;
+        }}
         @keyframes scroll-ticker {{
             0% {{ transform: translateX(0); }}
             100% {{ transform: translateX(-100%); }}
         }}
         </style>
-        <div class="ticker-wrap">
+        <div class="ticker-wrap" title="Survolez pour mettre en pause - Cliquez pour voir les détails">
             <div class="ticker-content">
                 {repeated_content}
             </div>
@@ -1030,16 +1192,16 @@ with col1:
 
         equity_choice = st.multiselect("Equity", 
                                        ASSETS["Equity"].keys(), 
-                                       default="Apple (AAPL)")
+                                       key="equity_sel")
         commodity_choice = st.multiselect("Commodity", 
                                           ASSETS["Commodity"].keys(),
-                                          default=["Crude Oil WTI (CL=F)",
-                                                   "Gold (GC=F)"])
+                                          key="commodity_sel")
         index_choice = st.multiselect("Index",
                                       ASSETS["Index"].keys(),
-                                      default="S&P 500 (^GSPC)")
+                                      key="index_sel")
         forex_choice = st.multiselect("Forex", 
-                                      ASSETS["Forex"].keys())
+                                      ASSETS["Forex"].keys(),
+                                      key="forex_sel")
                                       
         tickers = get_ticker(equity_choice, 
                              commodity_choice, 
