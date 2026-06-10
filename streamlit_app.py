@@ -892,7 +892,7 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
 
 @st.cache_data(ttl=300)
 def fetch_global_market_data():
-    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X"]
+    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X", "EURGBP=X"]
     data = yf.download(tickers, period="1y", progress=False)["Close"].ffill()
     return data
 
@@ -916,7 +916,7 @@ def get_ticker_tape_html(global_data):
 
 
 @st.cache_data(ttl=300)
-def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data, global_data):
+def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation):
     class CustomPDF(FPDF):
         def header(self):
             # Elegant Header
@@ -938,7 +938,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
             now_str = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
             self.cell(0, 10, f"Prepared by Valentin Fauré - Market Dashboard | Generated at {now_str} | Page {self.page_no()}", align="C")
 
-    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X"]
+    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X", "EURGBP=X"]
     data = global_data
     
     latest_vals = {}
@@ -985,7 +985,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     commentary = f"{sp_comment} {curve_comment}"
 
     # US Yield Curve
-    plt.figure(figsize=(9, 3.2))
+    plt.figure(figsize=(9, 2.5))
     fed_latest = fed_rate_series.dropna().iloc[-1]
     us_x = ["Fed Rate"] + list(us_latest.index)
     us_y = [fed_latest] + list(us_latest.values)
@@ -1012,7 +1012,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.close()
 
     # Euro Yield Curve
-    plt.figure(figsize=(9, 3.2))
+    plt.figure(figsize=(9, 2.5))
     ecb_latest = ecb_data.dropna(how='all').iloc[-1]
     depo_latest = ecb_rate_series.dropna().iloc[-1]
     ecb_x = ["Deposit"] + list(ecb_latest.index)
@@ -1040,7 +1040,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.close()
 
     # Japan Yield Curve
-    plt.figure(figsize=(9, 3.2))
+    plt.figure(figsize=(9, 2.5))
     japan_latest = japan_data.dropna(how='all').iloc[-1]
     jp_x = list(japan_latest.index)
     jp_y = list(japan_latest.values)
@@ -1067,6 +1067,22 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     plt.close()
 
     pdf = CustomPDF()
+    
+    # --- COVER PAGE ---
+    pdf.add_page()
+    pdf.set_y(100)
+    pdf.set_text_color(140, 120, 81)
+    pdf.set_font("helvetica", "B", 32)
+    pdf.cell(0, 15, "Global Macro", align="C", ln=True)
+    pdf.cell(0, 15, "& Market Report", align="C", ln=True)
+    pdf.set_text_color(100, 100, 100)
+    pdf.set_font("helvetica", "I", 14)
+    now_str = pd.Timestamp.now().strftime("%B %d, %Y")
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Prepared on {now_str}", align="C", ln=True)
+    pdf.cell(0, 10, "Author: Valentin Fauré", align="C", ln=True)
+    
+    # --- CONTENT PAGE 1 ---
     pdf.add_page()
 
     # Commentary
@@ -1122,7 +1138,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
         ("GBP/USD", "GBPUSD=X"),
         ("USD/JPY", "JPY=X"),
         ("USD/CHF", "CHF=X"),
-        (None, None)
+        ("EUR/GBP", "EURGBP=X")
     ]
     
     for (name, ticker, is_curr), (fx_name, fx_ticker) in zip(assets_to_display, fx_pairs):
@@ -1189,6 +1205,24 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
         box_width = 190 / len(govies_items)
         for country, yield_val in govies_items:
             pdf.cell(box_width, 8, f"{country}: {yield_val:.2f}%", border=1, align="C")
+    pdf.ln(10)
+
+    # Policy Rates and Inflation
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(140, 120, 81)
+    pdf.cell(0, 8, "Macroeconomic Snapshot", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("helvetica", "", 10)
+    
+    latest_fed = fed_rate_series.dropna().iloc[-1] if not fed_rate_series.empty else 0
+    latest_ecb = ecb_rate_series.dropna().iloc[-1] if not ecb_rate_series.empty else 0
+    latest_us_inf = us_inflation.iloc[-1] if not us_inflation.empty else 0
+    latest_eu_inf = eu_inflation.iloc[-1] if not eu_inflation.empty else 0
+    
+    pdf.cell(45, 8, f"US Fed Rate: {latest_fed:.2f}%", border=1, align="C")
+    pdf.cell(45, 8, f"US Inflation: {latest_us_inf:.1f}%", border=1, align="C")
+    pdf.cell(50, 8, f"ECB Depo Rate: {latest_ecb:.2f}%", border=1, align="C")
+    pdf.cell(50, 8, f"EU Inflation: {latest_eu_inf:.1f}%", border=1, align="C", ln=True)
     pdf.ln(8)
 
     pdf.ln(5)
@@ -1202,12 +1236,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.ln(2)
     pdf.image(ecb_img_buf, x=20, w=170)
     
-    # Japan Curve - put it on a new page to avoid overflow
-    pdf.add_page()
-    pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(140, 120, 81)
-    pdf.cell(0, 8, "Yield Curves (Continued)", ln=True)
-    pdf.set_text_color(0, 0, 0)
+    # Japan Curve - follows directly below on the same page
     pdf.ln(2)
     pdf.image(jp_img_buf, x=20, w=170)
     
@@ -1344,8 +1373,10 @@ with col1:
             ecb_rate_series = fetch_ecb_policy_rate()
             govies_data = fetch_ecb_govies_10y()
             japan_data = fetch_japan_yield_curve()
+            eu_inflation = fetch_ecb_inflation()
+            us_inflation = fetch_us_inflation()
             
-            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data, global_data)
+            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation)
             
             st.download_button("📄 Download PDF Recap", 
                                data=pdf_bytes, 
