@@ -915,8 +915,77 @@ def get_ticker_tape_html(global_data):
         return ""
 
 
+
+def generate_market_insight_text(us_data, news_data, deltas_30d):
+    import pandas as pd
+    # 1. Macro & Monetary
+    macro_text = "Macroeconomic & Monetary Policy:\n"
+    if us_data is not None and not us_data.empty:
+        us_latest = us_data.dropna(how='all').iloc[-1]
+        y10 = us_latest.get('10 Yr', None)
+        y2 = us_latest.get('2 Yr', None)
+        
+        if pd.notna(y10) and pd.notna(y2):
+            if y10 < y2:
+                macro_text += f"The US Treasury yield curve remains inverted (10Y at {y10:.2f}%, 2Y at {y2:.2f}%), a classic precursor to economic slowdowns or recessions. Markets continue to price in restrictive monetary conditions. "
+            else:
+                macro_text += f"The US Treasury yield curve shows a positive slope (10Y at {y10:.2f}%, 2Y at {y2:.2f}%), reflecting normalizing economic conditions. "
+        
+        if y10 and y10 > 4.0:
+            macro_text += "High absolute yields suggest sustained inflationary pressures or a 'higher for longer' central bank stance."
+        elif y10:
+            macro_text += "Subdued yields indicate controlled inflation or potential easing cycles on the horizon."
+    else:
+        macro_text += "US Treasury data unavailable."
+
+    # 2. Market Momentum
+    sp_30d = deltas_30d.get('^GSPC', 0)
+    gold_30d = deltas_30d.get('GC=F', 0)
+    
+    momentum_text = "\n\nAsset Class Momentum:\n"
+    if sp_30d > 0 and gold_30d < 0:
+        momentum_text += f"A strong 'Risk-On' environment dominates. Equities are rallying (S&P 500 up {sp_30d:.1f}% over 30 days) while safe havens like Gold retreat ({gold_30d:.1f}%)."
+    elif sp_30d < 0 and gold_30d > 0:
+        momentum_text += f"A clear 'Risk-Off' sentiment is taking hold. Investors are fleeing equities (S&P 500 down {abs(sp_30d):.1f}%) and flocking to safe havens like Gold (up {gold_30d:.1f}%)."
+    elif sp_30d > 0 and gold_30d > 0:
+        momentum_text += f"Markets are exhibiting a dual rally. Both risk assets (S&P 500 up {sp_30d:.1f}%) and safe havens (Gold up {gold_30d:.1f}%) are gaining, suggesting complex macro crosscurrents."
+    else:
+        momentum_text += f"Markets are broadly retreating, with both equities ({sp_30d:.1f}%) and safe havens ({gold_30d:.1f}%) showing weakness."
+
+    # 3. Geopolitics & News
+    news_text = "\n\nGeopolitical & Thematic Drivers:\n"
+    if news_data:
+        titles = [n['title'].lower() for n in news_data]
+        all_text = " ".join(titles)
+        
+        geopolitics_words = ["war", "conflict", "middle east", "russia", "ukraine", "china", "taiwan", "election", "sanctions", "strike"]
+        monetary_words = ["fed", "inflation", "cpi", "ecb", "powell", "lagarde", "rate", "cut", "hike", "gdp"]
+        tech_words = ["ai", "tech", "earnings", "nvidia", "apple", "microsoft"]
+        
+        has_geo = any(w in all_text for w in geopolitics_words)
+        has_mon = any(w in all_text for w in monetary_words)
+        has_tech = any(w in all_text for w in tech_words)
+        
+        if has_geo:
+            news_text += "Geopolitical tensions and systemic risks remain top of mind for investors. "
+        if has_mon:
+            news_text += "Central bank policy, inflation data, and rate trajectory are acting as primary market catalysts. "
+        if has_tech:
+            news_text += "Technology sector earnings and AI-driven developments are significantly influencing broader indices. "
+            
+        if not has_geo and not has_mon and not has_tech:
+            news_text += "Current headlines reflect a mixed, idiosyncratic market environment without a single dominant macro theme. "
+            
+        # Add an example
+        if len(news_data) > 0:
+            news_text += f"For instance, recent headlines indicate: '{news_data[0]['title']}'."
+    else:
+        news_text += "No major immediate news catalysts are currently detected in the feed."
+        
+    return macro_text + momentum_text + news_text
+
 @st.cache_data(ttl=300)
-def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation):
+def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation, news_data):
     class CustomPDF(FPDF):
         def header(self):
             # Elegant Header
@@ -967,25 +1036,11 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
             deltas_1y[t] = 0.0
 
     # Dynamic Commentary
-    sp_30d_return = deltas_30d.get('^GSPC', 0)
-    sp_comment = f"Equities show {'positive' if sp_30d_return >= 0 else 'negative'} momentum, with the S&P 500 {'up' if sp_30d_return >= 0 else 'down'} {abs(sp_30d_return):.1f}% over the past 30 days."
-    
-    us_latest = us_data.dropna(how='all').iloc[-1]
-    y10 = us_latest.get('10 Yr', None)
-    y2 = us_latest.get('2 Yr', None)
-    
-    if pd.notna(y10) and pd.notna(y2):
-        if y10 < y2:
-            curve_comment = "The US Treasury yield curve remains inverted, often viewed as an economic warning sign."
-        else:
-            curve_comment = "The US Treasury yield curve is positively sloped, reflecting normalized conditions."
-    else:
-        curve_comment = ""
-
-    commentary = f"{sp_comment} {curve_comment}"
+    commentary = generate_market_insight_text(us_data, news_data, deltas_30d)
 
     # US Yield Curve
     plt.figure(figsize=(9, 2.5))
+    us_latest = us_data.dropna(how='all').iloc[-1]
     fed_latest = fed_rate_series.dropna().iloc[-1]
     us_x = ["Fed Rate"] + list(us_latest.index)
     us_y = [fed_latest] + list(us_latest.values)
@@ -1090,9 +1145,9 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     pdf.set_text_color(140, 120, 81)
     pdf.cell(0, 8, "Market Insight", ln=True)
     pdf.set_text_color(50, 50, 50)
-    pdf.set_font("helvetica", "I", 10)
+    pdf.set_font("helvetica", "", 10)
     pdf.multi_cell(0, 5, commentary)
-    pdf.ln(2)
+    pdf.ln(4)
 
     def format_val(val, is_currency=False):
         prefix = "$" if is_currency else ""
@@ -1375,8 +1430,9 @@ with col1:
             japan_data = fetch_japan_yield_curve()
             eu_inflation = fetch_ecb_inflation()
             us_inflation = fetch_us_inflation()
+            news_data = fetch_top_news()
             
-            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation)
+            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data, global_data, eu_inflation, us_inflation, news_data)
             
             st.download_button("📄 Download PDF Recap", 
                                data=pdf_bytes, 
