@@ -1424,28 +1424,52 @@ with col2:
     st.subheader("Macroeconomics")
     
     with st.expander("Recap"):
-        st.markdown("#### Global 10Y Yields")
-        latest_eu = govies_data.dropna().iloc[-1]
-        global_govies = {
-            "🇺🇸 US": us_treasury_data['10 Yr'].dropna().iloc[-1] if not us_treasury_data.empty else None,
-            "🇩🇪 DE": latest_eu.get("🇩🇪 Germany", None),
-            "🇯🇵 JP": japan_data['10Y'].dropna().iloc[-1] if not japan_data.empty else None,
-            "🇫🇷 FR": latest_eu.get("🇫🇷 France", None),
-            "🇮🇹 IT": latest_eu.get("🇮🇹 Italy", None),
-        }
-        
-        valid_govies = {k: v for k, v in global_govies.items() if v is not None}
-        sorted_govies = dict(sorted(valid_govies.items(), key=lambda item: item[1], reverse=True))
-        
-        govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in sorted_govies.items()]
-        govies_df = pd.DataFrame(govies_list)
-        
-        styled_df = govies_df.style.hide(axis="index").set_table_styles([{
-            'selector': 'th',
-            'props': [('background-color', 'rgba(140, 120, 81, 0.1)')]
-        }])
-        
-        st.table(styled_df)
+        recap_col1, recap_col2, recap_col3 = st.columns([2, 1, 1])
+        with recap_col1:
+            st.markdown("#### Global 10Y Yields")
+            latest_eu = govies_data.dropna().iloc[-1]
+            global_govies = {
+                "🇺🇸 US": us_treasury_data['10 Yr'].dropna().iloc[-1] if not us_treasury_data.empty else None,
+                "🇩🇪 DE": latest_eu.get("🇩🇪 Germany", None),
+                "🇯🇵 JP": japan_data['10Y'].dropna().iloc[-1] if not japan_data.empty else None,
+                "🇫🇷 FR": latest_eu.get("🇫🇷 France", None),
+                "🇮🇹 IT": latest_eu.get("🇮🇹 Italy", None),
+            }
+            
+            valid_govies = {k: v for k, v in global_govies.items() if v is not None}
+            sorted_govies = dict(sorted(valid_govies.items(), key=lambda item: item[1], reverse=True))
+            
+            govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in sorted_govies.items()]
+            govies_df = pd.DataFrame(govies_list)
+            
+            styled_df = govies_df.style.hide(axis="index").set_table_styles([{
+                'selector': 'th',
+                'props': [('background-color', 'rgba(140, 120, 81, 0.1)')]
+            }])
+            
+            st.table(styled_df)
+            
+        with recap_col2:
+            st.markdown("#### Latest Inflation")
+            if not inflation_data.empty:
+                latest_eu_inf = inflation_data.iloc[-1]
+                with st.container(border=True):
+                    st.metric(label="🇪🇺 Euro Area", value=f"{latest_eu_inf:.1f} %")
+            if not us_inflation_data.empty:
+                latest_us_inf = us_inflation_data.iloc[-1]
+                with st.container(border=True):
+                    st.metric(label="🇺🇸 United States", value=f"{latest_us_inf:.1f} %")
+                    
+        with recap_col3:
+            st.markdown("#### Policy Rates")
+            if not ecb_rate_series.empty:
+                latest_ecb_rate = ecb_rate_series.iloc[-1]
+                with st.container(border=True):
+                    st.metric(label="🇪🇺 ECB Deposit Rate", value=f"{latest_ecb_rate:.2f} %")
+            if not fed_rate.empty:
+                latest_fed_rate = fed_rate.iloc[-1]
+                with st.container(border=True):
+                    st.metric(label="🇺🇸 FED Funds Rate", value=f"{latest_fed_rate:.2f} %")
         
     tab_eu, tab_us, tab_jp = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States", "🇯🇵 Japan"])
     with tab_eu:
