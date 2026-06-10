@@ -127,6 +127,17 @@ period_offset_dict = {
     "Max": None
 }
 
+period_yf_dict = {
+    "1 Month": "1mo",
+    "3 Months": "3mo",
+    "6 Months": "6mo",
+    "1 Year": "1y",
+    "5 Years": "5y",
+    "10 Years": "10y",
+    "20 Years": "max",
+    "Max": "max"
+}
+
 
 ASSETS = {
     "Equity": {
@@ -259,9 +270,9 @@ def fetch_top_news():
 
 
 @st.cache_data(ttl=3600)
-def fetch_yfinance_data(tickers):
+def fetch_yfinance_data(tickers, period="max"):
     tickers_list = list(tickers)
-    yfinance_data = yf.download(tickers_list, period="max", progress=False)["Close"].ffill().dropna()
+    yfinance_data = yf.download(tickers_list, period=period, progress=False)["Close"].ffill().dropna()
     rename_map = {}
     for category, assets in ASSETS.items():
         for name_displayed, ticker in assets.items():
@@ -796,14 +807,18 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
 
 
 @st.cache_data(ttl=300)
-def get_ticker_tape_html():
+def fetch_global_market_data():
+    tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X"]
+    data = yf.download(tickers, period="1y", progress=False)["Close"].ffill()
+    return data
+
+def get_ticker_tape_html(global_data):
     tickers = {"S&P 500": "^GSPC", "CAC 40": "^FCHI", "VIX": "^VIX", "EUR/USD": "EURUSD=X", "Gold": "GC=F", "Brent": "BZ=F"}
     try:
-        data = yf.download(list(tickers.values()), period="5d", progress=False)["Close"]
         items = []
         for name, ticker in tickers.items():
-            if ticker in data:
-                series = data[ticker].dropna()
+            if ticker in global_data.columns:
+                series = global_data[ticker].dropna()
                 if len(series) >= 2:
                     latest = series.iloc[-1]
                     prev = series.iloc[-2]
@@ -817,7 +832,7 @@ def get_ticker_tape_html():
 
 
 @st.cache_data(ttl=300)
-def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data):
+def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govies_data, japan_data, global_data):
     class CustomPDF(FPDF):
         def header(self):
             # Elegant Header
@@ -840,7 +855,7 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
             self.cell(0, 10, f"Prepared by Valentin Fauré - Market Dashboard | Generated at {now_str} | Page {self.page_no()}", align="C")
 
     tickers = ["^FCHI", "^GSPC", "BZ=F", "GC=F", "^VIX", "EURUSD=X", "JPY=X", "GBPUSD=X", "CHF=X"]
-    data = yf.download(tickers, period="1y", progress=False)["Close"].ffill()
+    data = global_data
     
     latest_vals = {}
     deltas_30d = {}
@@ -1133,7 +1148,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-tape_content = get_ticker_tape_html()
+global_data = fetch_global_market_data()
+tape_content = get_ticker_tape_html(global_data)
 if tape_content:
     # Duplicate the content a few times to ensure it covers wide screens
     repeated_content = " ".join([tape_content] * 4)
@@ -1214,20 +1230,24 @@ with col1:
             st.toast("Please select at least one ticker to continue.", icon="⚠️")
             st.stop()
                     
-    with st.container(border=True):
-        st.markdown("#### Top News")
-        news = fetch_top_news()
-        if news:
-            for n in news:
-                st.markdown(f'''
-                    <a href="{n['url']}" target="_blank" style="text-decoration: none; color: inherit;">
-                        <div style="padding: 12px; margin-bottom: 12px; border-radius: 8px; background-color: rgba(140, 120, 81, 0.05); border-left: 4px solid #8c7851; transition: background-color 0.2s, transform 0.1s;" onmouseover="this.style.backgroundColor='rgba(140, 120, 81, 0.1)'; this.style.transform='translateX(2px)';" onmouseout="this.style.backgroundColor='rgba(140, 120, 81, 0.05)'; this.style.transform='translateX(0)';">
-                            <span style="font-size: 0.9em; font-weight: 500; color: #1a1a1a; line-height: 1.4; display: block;">{n['title']}</span>
-                        </div>
-                    </a>
-                ''', unsafe_allow_html=True)
-        else:
-            st.write("No news available.")
+    @st.fragment
+    def render_top_news():
+        with st.container(border=True):
+            st.markdown("#### Top News")
+            news = fetch_top_news()
+            if news:
+                for n in news:
+                    st.markdown(f'''
+                        <a href="{n['url']}" target="_blank" style="text-decoration: none; color: inherit;">
+                            <div style="padding: 12px; margin-bottom: 12px; border-radius: 8px; background-color: rgba(140, 120, 81, 0.05); border-left: 4px solid #8c7851; transition: background-color 0.2s, transform 0.1s;" onmouseover="this.style.backgroundColor='rgba(140, 120, 81, 0.1)'; this.style.transform='translateX(2px)';" onmouseout="this.style.backgroundColor='rgba(140, 120, 81, 0.05)'; this.style.transform='translateX(0)';">
+                                <span style="font-size: 0.9em; font-weight: 500; color: #1a1a1a; line-height: 1.4; display: block;">{n['title']}</span>
+                            </div>
+                        </a>
+                    ''', unsafe_allow_html=True)
+            else:
+                st.write("No news available.")
+
+    render_top_news()
 
     @st.fragment
     def render_export_report():
@@ -1241,7 +1261,7 @@ with col1:
             govies_data = fetch_ecb_govies_10y()
             japan_data = fetch_japan_yield_curve()
             
-            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data)
+            pdf_bytes = generate_pdf_recap(us_treasury_data, ecb_data, fed_rate, ecb_rate_series, govies_data, japan_data, global_data)
             
             st.download_button("📄 Download PDF Recap", 
                                data=pdf_bytes, 
@@ -1258,14 +1278,16 @@ with col2:
                                       "Data"])
     
     with st.spinner("Processing data..."):
-        # Fetch max data for selected tickers
         tickers_tuple = tuple(tickers)
-        yfinance_data_max = fetch_yfinance_data(tickers_tuple)
+        period_yf = period_yf_dict[period_choice]
+        yfinance_data_max = fetch_yfinance_data(tickers_tuple, period=period_yf)
         
-        # Slice data based on selected period
+        # Slice data based on selected period to ensure exact match
         if period_offset is not None:
             start_date_str = (pd.Timestamp.today() - period_offset).strftime('%Y-%m-%d')
             yfinance_data = yfinance_data_max.loc[start_date_str:]
+            if yfinance_data.empty: # Fallback in case period_offset is outside yf period
+                yfinance_data = yfinance_data_max
         else:
             yfinance_data = yfinance_data_max
             
