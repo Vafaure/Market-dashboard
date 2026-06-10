@@ -615,6 +615,51 @@ def fetch_fed_policy_rate():
 
 
 @st.cache_data(ttl=3600)
+def fetch_ecb_inflation():
+    start = (pd.Timestamp.today() - pd.DateOffset(years=10)).strftime("%Y-%m")
+    url = (f"https://data-api.ecb.europa.eu/service/data/ICP/"
+           f"M.U2.N.000000.4.ANR"
+           f"?format=csvdata&startPeriod={start}")
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            df = pd.read_csv(io.StringIO(resp.text))
+            df["TIME_PERIOD"] = pd.to_datetime(df["TIME_PERIOD"])
+            df["OBS_VALUE"] = pd.to_numeric(df["OBS_VALUE"], errors="coerce")
+            df = df.sort_values("TIME_PERIOD")
+            df = df.set_index("TIME_PERIOD")
+            return df["OBS_VALUE"]
+    except Exception:
+        pass
+    return pd.Series(dtype=float)
+
+
+@st.cache_data(ttl=3600)
+def fetch_us_inflation():
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
+    try:
+        resp = requests.get(url, headers={"User-Agent": "curl/8.4.0"}, timeout=10)
+        if resp.status_code == 200:
+            df = pd.read_csv(io.StringIO(resp.text))
+            date_col = "DATE" if "DATE" in df.columns else "observation_date"
+            df[date_col] = pd.to_datetime(df[date_col])
+            df["CPIAUCSL"] = pd.to_numeric(df["CPIAUCSL"], errors="coerce")
+            df = df.sort_values(date_col).set_index(date_col)
+            # Calculate YoY inflation (percent change over 12 months)
+            inflation = df["CPIAUCSL"].pct_change(12) * 100
+            # Keep last 10 years
+            ten_years_ago = pd.Timestamp.today() - pd.DateOffset(years=10)
+            inflation = inflation[inflation.index >= ten_years_ago].dropna()
+            return inflation
+    except Exception:
+        pass
+    return pd.Series(dtype=float)
+
+
+
+
+
+@st.cache_data(ttl=3600)
 def fetch_japan_yield_curve():
     url = "https://www.mof.go.jp/english/jgbs/reference/interest_rate/historical/jgbcme_all.csv"
     try:
@@ -684,6 +729,32 @@ def plot_japan_yield_curve(japan_data):
         if fig.layout.sliders:
             fig.layout.sliders[0].active = len(fig.frames) - 1
             
+    return fig
+
+
+def plot_single_inflation(inflation_data, color, title_prefix="Inflation"):
+    if inflation_data.empty:
+        return px.line(title="Data not available")
+    df = inflation_data.reset_index()
+    df.columns = ["Date", "Inflation (%)"]
+    latest_val = df["Inflation (%)"].iloc[-1]
+    
+    fig = px.bar(df, x="Date", y="Inflation (%)", template="plotly_white")
+    fig.update_layout(
+        title=f"{title_prefix} (Latest: {latest_val:.1f}%)",
+        title_font=dict(size=16, color="#1a1a1a"),
+        xaxis_title="", 
+        yaxis_title="Inflation (%)", 
+        showlegend=False, 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=0, r=0, t=40, b=0), 
+        height=300
+    )
+    
+    fig.update_traces(marker_color=color)
+    
+    fig.add_hline(y=2.0, line_dash="dash", line_color="#00c04b", annotation_text="Target (2%)", annotation_position="top right")
     return fig
 
 
@@ -1284,6 +1355,8 @@ with col1:
 
     render_export_report()
 
+
+
 with col2:
     tab1, tab2, tab3, tab5 = st.tabs(["Market Overview",
                                       "Correlation matrix",
@@ -1336,6 +1409,8 @@ with col2:
             future_us = executor.submit(fetch_us_treasury_yield_curve)
             future_fed = executor.submit(fetch_fed_policy_rate)
             future_jp = executor.submit(fetch_japan_yield_curve)
+            future_inflation = executor.submit(fetch_ecb_inflation)
+            future_us_inflation = executor.submit(fetch_us_inflation)
             
             ecb_data = future_ecb.result()
             govies_data = future_govies.result()
@@ -1343,24 +1418,13 @@ with col2:
             us_treasury_data = future_us.result()
             fed_rate = future_fed.result()
             japan_data = future_jp.result()
+            inflation_data = future_inflation.result()
+            us_inflation_data = future_us_inflation.result()
 
-    st.subheader("Yield Curves")
-    col_curve, col_govies = st.columns([2.5, 1])
-    with col_curve:
-        tab_eu, tab_us, tab_jp = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States", "🇯🇵 Japan"])
-        with tab_eu:
-            ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
-            st.plotly_chart(ecb_bar_fig, use_container_width=True)
-        with tab_us:
-            us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
-            st.plotly_chart(us_bar_fig, use_container_width=True)
-        with tab_jp:
-            jp_bar_fig = plot_japan_yield_curve(japan_data)
-            st.plotly_chart(jp_bar_fig, use_container_width=True)
-    with col_govies:
+    st.subheader("Macroeconomics")
+    
+    with st.expander("Recap"):
         st.markdown("#### Global 10Y Yields")
-        
-        # We already have DE, FR, IT, ES, NL from ECB
         latest_eu = govies_data.dropna().iloc[-1]
         global_govies = {
             "🇺🇸 US": us_treasury_data['10 Yr'].dropna().iloc[-1] if not us_treasury_data.empty else None,
@@ -1370,24 +1434,44 @@ with col2:
             "🇮🇹 IT": latest_eu.get("🇮🇹 Italy", None),
         }
         
-        # Filter out Nones and sort descending
         valid_govies = {k: v for k, v in global_govies.items() if v is not None}
         sorted_govies = dict(sorted(valid_govies.items(), key=lambda item: item[1], reverse=True))
         
         govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in sorted_govies.items()]
         govies_df = pd.DataFrame(govies_list)
         
-        # Attempt to style header via Pandas Styler
         styled_df = govies_df.style.hide(axis="index").set_table_styles([{
             'selector': 'th',
             'props': [('background-color', 'rgba(140, 120, 81, 0.1)')]
         }])
         
-        # Use st.table to disable column sorting completely while keeping Streamlit styling centered
         st.table(styled_df)
         
-        st.markdown(data_as_of_html, unsafe_allow_html=True)
+    tab_eu, tab_us, tab_jp = st.tabs(["🇪🇺 Euro Area", "🇺🇸 United States", "🇯🇵 Japan"])
+    with tab_eu:
+        ecb_bar_fig = plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series)
+        st.plotly_chart(ecb_bar_fig, use_container_width=True)
+        
+        if not inflation_data.empty:
+            eu_fig = plot_single_inflation(inflation_data, "#8c7851", "Euro Area Inflation")
+            st.plotly_chart(eu_fig, use_container_width=True)
+        else:
+            st.warning("Euro Area data not available.")
+            
+    with tab_us:
+        us_bar_fig = plot_us_treasury_yield_curve(us_treasury_data, fed_rate)
+        st.plotly_chart(us_bar_fig, use_container_width=True)
+        
+        if not us_inflation_data.empty:
+            us_fig = plot_single_inflation(us_inflation_data, "#8c7851", "United States Inflation")
+            st.plotly_chart(us_fig, use_container_width=True)
+        else:
+            st.warning("US data not available.")
+            
+    with tab_jp:
+        jp_bar_fig = plot_japan_yield_curve(japan_data)
+        st.plotly_chart(jp_bar_fig, use_container_width=True)
+        
+    st.markdown(data_as_of_html, unsafe_allow_html=True)
 
-    # Adding the timestamp below the yield curves
-    with col_curve:
-        st.markdown(data_as_of_html, unsafe_allow_html=True)
+
