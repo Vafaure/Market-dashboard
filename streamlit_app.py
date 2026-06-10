@@ -305,6 +305,19 @@ def plot_yfinance_data (yfinance_data, tickers, logscale):
 
 
 def metrics_yfinance_data(yfinance_data):
+    st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        font-size: 1.6rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 1.0rem !important;
+    }
+    [data-testid="stMetricDelta"] {
+        font-size: 0.85rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     columns = yfinance_data.columns  
     last_price = yfinance_data.iloc[-1]
     delta = (yfinance_data.iloc[-1] / yfinance_data.iloc[0] - 1) * 100 
@@ -451,12 +464,12 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
                     is_inverted = spread_val < 0
             
             color = "#ff2b2b" if is_inverted else "#00c04b"
-            status_text = f"Courbe Inversée (Spread 10Y-2Y : {spread_val:+.2f}%)" if is_inverted else f"Courbe Normale (Spread 10Y-2Y : {spread_val:+.2f}%)"
+            status_text = f"Inverted Curve (Spread 10Y-2Y: {spread_val:+.2f}%)" if is_inverted else f"Normal Curve (Spread 10Y-2Y: {spread_val:+.2f}%)"
             
             frame.data[0].update(line=dict(color=color))
             
             text_trace = go.Scatter(
-                x=["5Y"],
+                x=["3Y"],
                 y=[y_max - 0.3],
                 text=[status_text],
                 mode="text",
@@ -479,7 +492,7 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
                 last_inverted = last_spread < 0
         
         initial_color = "#ff2b2b" if last_inverted else "#00c04b"
-        initial_status = f"Courbe Inversée (Spread 10Y-2Y : {last_spread:+.2f}%)" if last_inverted else f"Courbe Normale (Spread 10Y-2Y : {last_spread:+.2f}%)"
+        initial_status = f"Inverted Curve (Spread 10Y-2Y: {last_spread:+.2f}%)" if last_inverted else f"Normal Curve (Spread 10Y-2Y: {last_spread:+.2f}%)"
         
         for trace_idx in range(min(len(fig.data), len(last_frame.data))):
             fig.data[trace_idx].x = last_frame.data[trace_idx].x
@@ -489,7 +502,7 @@ def plot_ecb_yield_curve_bar(ecb_data, ecb_rate_series):
             fig.data[trace_idx].update(line=dict(color=initial_color))
             
         fig.add_trace(go.Scatter(
-            x=["5Y"],
+            x=["3Y"],
             y=[y_max - 0.3],
             text=[initial_status],
             mode="text",
@@ -750,12 +763,12 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
                     is_inverted = spread_val < 0
             
             color = "#ff2b2b" if is_inverted else "#00c04b"
-            status_text = f"Courbe Inversée (Spread 10Y-2Y : {spread_val:+.2f}%)" if is_inverted else f"Courbe Normale (Spread 10Y-2Y : {spread_val:+.2f}%)"
+            status_text = f"Inverted Curve (Spread 10Y-2Y: {spread_val:+.2f}%)" if is_inverted else f"Normal Curve (Spread 10Y-2Y: {spread_val:+.2f}%)"
             
             frame.data[0].update(line=dict(color=color))
             
             text_trace = go.Scatter(
-                x=["5 Yr"],
+                x=["3 Yr"],
                 y=[y_max - 0.3],
                 text=[status_text],
                 mode="text",
@@ -778,7 +791,7 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
                 last_inverted = last_spread < 0
         
         initial_color = "#ff2b2b" if last_inverted else "#00c04b"
-        initial_status = f"Courbe Inversée (Spread 10Y-2Y : {last_spread:+.2f}%)" if last_inverted else f"Courbe Normale (Spread 10Y-2Y : {last_spread:+.2f}%)"
+        initial_status = f"Inverted Curve (Spread 10Y-2Y: {last_spread:+.2f}%)" if last_inverted else f"Normal Curve (Spread 10Y-2Y: {last_spread:+.2f}%)"
         
         for trace_idx in range(min(len(fig.data), len(last_frame.data))):
             fig.data[trace_idx].x = last_frame.data[trace_idx].x
@@ -788,7 +801,7 @@ def plot_us_treasury_yield_curve(us_data, fed_rate_series):
             fig.data[trace_idx].update(line=dict(color=initial_color))
             
         fig.add_trace(go.Scatter(
-            x=["5 Yr"],
+            x=["3 Yr"],
             y=[y_max - 0.3],
             text=[initial_status],
             mode="text",
@@ -1187,7 +1200,7 @@ if tape_content:
             100% {{ transform: translateX(-100%); }}
         }}
         </style>
-        <div class="ticker-wrap" title="Survolez pour mettre en pause - Cliquez pour voir les détails">
+        <div class="ticker-wrap" title="Hover to pause - Click to view details">
             <div class="ticker-content">
                 {repeated_content}
             </div>
@@ -1295,8 +1308,9 @@ with col2:
     
     with tab1:
         st.plotly_chart(yfinance_fig)
-        latest_date = yfinance_data.index[-1].strftime("%d/%m/%Y")
-        st.markdown(f"<p style='text-align: right; font-style: italic; color: #8c7851; font-size: 0.85em; margin-top: -20px; opacity: 0.7;'>Data as of {latest_date}</p>", unsafe_allow_html=True)
+        latest_date = yfinance_data.index[-1].strftime("%d/%m/%Y at %H:%M")
+        data_as_of_html = f"<p style='text-align: right; font-style: italic; color: #8c7851; font-size: 0.85em; margin-top: -20px; opacity: 0.7;'>Data as of {latest_date}</p>"
+        st.markdown(data_as_of_html, unsafe_allow_html=True)
         
     with tab2:
         correlation_fig = yfinance_data_correlation(yfinance_data)
@@ -1356,13 +1370,24 @@ with col2:
             "🇮🇹 IT": latest_eu.get("🇮🇹 Italy", None),
         }
         
-        # Filter out Nones and format
-        govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in global_govies.items() if v is not None]
+        # Filter out Nones and sort descending
+        valid_govies = {k: v for k, v in global_govies.items() if v is not None}
+        sorted_govies = dict(sorted(valid_govies.items(), key=lambda item: item[1], reverse=True))
+        
+        govies_list = [{"Country": k, "Yield (%)": f"{v:.2f} %"} for k, v in sorted_govies.items()]
         govies_df = pd.DataFrame(govies_list)
         
         # Attempt to style header via Pandas Styler
-        styled_df = govies_df.style.set_table_styles([{
+        styled_df = govies_df.style.hide(axis="index").set_table_styles([{
             'selector': 'th',
             'props': [('background-color', 'rgba(140, 120, 81, 0.1)')]
         }])
-        st.dataframe(styled_df, hide_index=True, use_container_width=True)
+        
+        # Use st.table to disable column sorting completely while keeping Streamlit styling centered
+        st.table(styled_df)
+        
+        st.markdown(data_as_of_html, unsafe_allow_html=True)
+
+    # Adding the timestamp below the yield curves
+    with col_curve:
+        st.markdown(data_as_of_html, unsafe_allow_html=True)
