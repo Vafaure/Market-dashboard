@@ -97,10 +97,6 @@ st.markdown(
     tbody tr th {
         background-color: transparent !important;
     }
-    /* Hide native Streamlit 'Running...' spinner */
-    [data-testid="stStatusWidget"] {
-        visibility: hidden;
-    }
     /* Disable the gray 'stale' effect when rerunning */
     [data-testid="stElementContainer"], 
     [data-testid="stMarkdownContainer"], 
@@ -1297,8 +1293,57 @@ def generate_pdf_recap(us_data, ecb_data, fed_rate_series, ecb_rate_series, govi
     
     return bytes(pdf.output())
 
+import time
 
 ##### CODE #####
+
+if "initial_load_complete" not in st.session_state:
+    st.session_state["initial_load_complete"] = False
+
+if not st.session_state["initial_load_complete"]:
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #8c7851;'>Initializing Market Dashboard</h2>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    _, center_col, _ = st.columns([1, 2, 1])
+    with center_col:
+        col1, col2 = st.columns([8, 2])
+        with col1:
+            task_placeholder = st.empty()
+        with col2:
+            pct_placeholder = st.empty()
+        
+        progress_bar = st.progress(0)
+        
+        tasks = [
+            ("Fetching global market data...", fetch_global_market_data),
+            ("Fetching top news...", fetch_top_news),
+            ("Fetching ECB yield curve...", fetch_ecb_yield_curve),
+            ("Fetching EU government bonds...", fetch_ecb_govies_10y),
+            ("Fetching ECB policy rate...", fetch_ecb_policy_rate),
+            ("Fetching US Treasury yield curve...", fetch_us_treasury_yield_curve),
+            ("Fetching Fed policy rate...", fetch_fed_policy_rate),
+            ("Fetching Japan yield curve...", fetch_japan_yield_curve),
+            ("Fetching Eurozone inflation...", fetch_ecb_inflation),
+            ("Fetching US inflation...", fetch_us_inflation),
+        ]
+        
+        total_tasks = len(tasks)
+        
+        for i, (task_text, task_func) in enumerate(tasks):
+            progress_pct = int((i / total_tasks) * 100)
+            task_placeholder.markdown(f"<div style='margin-bottom: -5px;'><strong>{task_text}</strong></div>", unsafe_allow_html=True)
+            pct_placeholder.markdown(f"<div style='text-align: right; font-weight: 600; color: #8c7851; margin-bottom: -5px;'>{progress_pct}%</div>", unsafe_allow_html=True)
+            progress_bar.progress(i / total_tasks)
+            task_func()
+            
+        task_placeholder.markdown("<div style='margin-bottom: -5px;'><strong>Loading complete!</strong></div>", unsafe_allow_html=True)
+        pct_placeholder.markdown("<div style='text-align: right; font-weight: 600; color: #8c7851; margin-bottom: -5px;'>100%</div>", unsafe_allow_html=True)
+        progress_bar.progress(1.0)
+        time.sleep(0.5)
+        st.session_state["initial_load_complete"] = True
+        st.rerun()
+
 
 st.title("Market Dashboard")
 st.markdown("""
@@ -1450,21 +1495,20 @@ with col2:
                                       "Volatility",
                                       "Data"])
     
-    with st.spinner("Processing data..."):
-        tickers_tuple = tuple(tickers)
-        period_yf = period_yf_dict[period_choice]
-        yfinance_data_max = fetch_yfinance_data(tickers_tuple, period=period_yf)
-        
-        # Slice data based on selected period to ensure exact match
-        if period_offset is not None:
-            start_date_str = (pd.Timestamp.today() - period_offset).strftime('%Y-%m-%d')
-            yfinance_data = yfinance_data_max.loc[start_date_str:]
-            if yfinance_data.empty: # Fallback in case period_offset is outside yf period
-                yfinance_data = yfinance_data_max
-        else:
+    tickers_tuple = tuple(tickers)
+    period_yf = period_yf_dict[period_choice]
+    yfinance_data_max = fetch_yfinance_data(tickers_tuple, period=period_yf)
+    
+    # Slice data based on selected period to ensure exact match
+    if period_offset is not None:
+        start_date_str = (pd.Timestamp.today() - period_offset).strftime('%Y-%m-%d')
+        yfinance_data = yfinance_data_max.loc[start_date_str:]
+        if yfinance_data.empty: # Fallback in case period_offset is outside yf period
             yfinance_data = yfinance_data_max
-            
-        yfinance_fig = plot_yfinance_data(yfinance_data, tickers, logscale)
+    else:
+        yfinance_data = yfinance_data_max
+        
+    yfinance_fig = plot_yfinance_data(yfinance_data, tickers, logscale)
     
     with tab1:
         st.plotly_chart(yfinance_fig)
@@ -1488,25 +1532,24 @@ with col2:
 
     st.write("---")
 
-    with st.spinner("Fetching ECB, US Treasury & JGB data..."):
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_ecb = executor.submit(fetch_ecb_yield_curve)
-            future_govies = executor.submit(fetch_ecb_govies_10y)
-            future_ecb_rate = executor.submit(fetch_ecb_policy_rate)
-            future_us = executor.submit(fetch_us_treasury_yield_curve)
-            future_fed = executor.submit(fetch_fed_policy_rate)
-            future_jp = executor.submit(fetch_japan_yield_curve)
-            future_inflation = executor.submit(fetch_ecb_inflation)
-            future_us_inflation = executor.submit(fetch_us_inflation)
-            
-            ecb_data = future_ecb.result()
-            govies_data = future_govies.result()
-            ecb_rate_series = future_ecb_rate.result()
-            us_treasury_data = future_us.result()
-            fed_rate = future_fed.result()
-            japan_data = future_jp.result()
-            inflation_data = future_inflation.result()
-            us_inflation_data = future_us_inflation.result()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_ecb = executor.submit(fetch_ecb_yield_curve)
+        future_govies = executor.submit(fetch_ecb_govies_10y)
+        future_ecb_rate = executor.submit(fetch_ecb_policy_rate)
+        future_us = executor.submit(fetch_us_treasury_yield_curve)
+        future_fed = executor.submit(fetch_fed_policy_rate)
+        future_jp = executor.submit(fetch_japan_yield_curve)
+        future_inflation = executor.submit(fetch_ecb_inflation)
+        future_us_inflation = executor.submit(fetch_us_inflation)
+        
+        ecb_data = future_ecb.result()
+        govies_data = future_govies.result()
+        ecb_rate_series = future_ecb_rate.result()
+        us_treasury_data = future_us.result()
+        fed_rate = future_fed.result()
+        japan_data = future_jp.result()
+        inflation_data = future_inflation.result()
+        us_inflation_data = future_us_inflation.result()
 
     st.subheader("Macroeconomics")
     
